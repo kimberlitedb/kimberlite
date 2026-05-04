@@ -2305,8 +2305,16 @@ impl TenantHandle {
 
         drop(inner);
 
+        // AUDIT-2026-05 S3.5 — DELETE row-count fidelity. The
+        // executed plan reports the matched-row count; the kernel
+        // submission loop must produce the same count out the
+        // back. A discrepancy means we either silently dropped a
+        // row (kernel rejected) or double-counted, both of which
+        // mislead `rows_affected` consumers.
+        let expected_rows = matching_rows.rows.len();
+
         // For each matched row, submit a DELETE command
-        let mut rows_affected = 0;
+        let mut rows_affected: u64 = 0;
         let mut last_offset = self.log_position()?;
         let mut deleted_rows: Vec<Vec<Value>> = Vec::new(); // Store row data for RETURNING (before deletion)
 
@@ -2410,6 +2418,14 @@ impl TenantHandle {
             rows_affected += 1;
             last_offset = self.log_position()?;
         }
+
+        // Postcondition: rows_affected must equal the planner's
+        // matched-row count. Drift here is a kernel-submission
+        // bug, not user error — surface it loudly. AUDIT-2026-05 S3.5.
+        assert_eq!(
+            rows_affected as usize, expected_rows,
+            "DELETE rows_affected drift: planner matched {expected_rows} rows, kernel submit loop reported {rows_affected}",
+        );
 
         // Return result with or without RETURNING data
         if let Some(returning_cols) = delete.returning {

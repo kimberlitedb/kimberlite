@@ -1892,6 +1892,15 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "AES-GCM 1 MiB roundtrip — AUDIT-2026-05 H-6. \
+                  MIRI's value is UB detection on the unsafe / FFI \
+                  surface; arithmetic correctness on AES-GCM internals \
+                  is upstream `aes-gcm` crate's responsibility, exercised \
+                  here via property tests + fuzz under cargo test. \
+                  Annotation closes the v0.7.0 ROADMAP MIRI-timeout item."
+    )]
     fn large_plaintext_encryption() {
         let key = EncryptionKey::generate();
         let nonce = Nonce::from_position(1);

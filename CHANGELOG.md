@@ -15,8 +15,196 @@ user-facing narrative.
 
 ## [Unreleased]
 
-_Accretion slot for v0.7.0 work. See [`ROADMAP.md`](./ROADMAP.md#v070--in-flight)
+_Accretion slot for v0.8.0 work. See [`ROADMAP.md`](./ROADMAP.md#v080--in-flight)
 for the planned scope._
+
+---
+
+## [0.7.0] — 2026-05-04
+
+**Theme:** production-validation release. Closes every v0.7.0
+ROADMAP gap that notebar's healthcare reporting flow needed,
+ratchets the verification surface (PRESSURECRAFT typed primitives +
+TLA+ purity spec + 16 VOPR scenario scaffolds + audit-matrix tool +
+topological publish validator), and bumps the Python SDK floor in
+lockstep with the typing refresh that PEP 604 unlocks.
+
+### Breaking changes
+
+- **Python SDK minimum version bumped 3.9 → 3.10.** Python 3.9
+  reached EOL 2025-10. The bump unlocks PEP 604 union syntax (`X |
+  None`) at runtime — the typing-refresh roadmap item leans on it.
+  Notebar uses Python 3.12 in production tooling so the bump is
+  invisible to them; downstream consumers pinned to 3.9 should hold
+  at `kimberlite==0.6.2` until they upgrade their interpreter.
+  `pyproject.toml`, `[tool.mypy]`, `[tool.black]`, `[tool.ruff]`
+  all updated; the `Programming Language :: Python :: 3.9`
+  classifier is removed.
+
+### Added — SQL surface
+
+- **6 new scalar functions in production**: `MOD(a, b)` (NULL on
+  divide-by-zero per Postgres), `POWER(base, exp)` (returns Real),
+  `SQRT(x)` (DomainError on negative input), `SUBSTRING(s FROM
+  start [FOR length])` (Unicode char-correct, supports negative
+  start per SQL semantics), `EXTRACT(field FROM ts)` (closed
+  `DateField` enum), `DATE_TRUNC(field, ts)` (truncatable subset
+  of fields, returns Date or Timestamp matching input shape). Each
+  has 2+ assertions, paired `#[should_panic]` tests, and property
+  tests for null-propagation + determinism.
+- **3 sentinel scalar variants** for time-now functions: `NOW()`,
+  `CURRENT_TIMESTAMP`, `CURRENT_DATE`. The evaluator stays pure —
+  these variants panic loudly if reached unfolded, with paired
+  `#[should_panic]` tests pinning the contract. The plan-time
+  `fold_time_constants` pass that substitutes them with literal
+  values is scaffolded for v0.8.0 production wiring; the v0.7.0
+  spec, parser, evaluator, and AST-walking infrastructure all
+  ship.
+- **Interval arithmetic primitives.** `Interval { months: i32,
+  days: i32, nanos: i64 }` typed primitive with PostgreSQL-
+  compatible three-component semantics (months calendar-relative,
+  days wall-clock, nanos sub-day). Construction normalises nanos
+  overflow into days. Component-wise `checked_add` /
+  `checked_sub` / `checked_neg` with Kani-friendly arithmetic;
+  Kani harnesses for associativity (no-month subset) and zero-
+  identity ship behind `#[cfg(kani)]`.
+- **`AggregateMemoryBudget(u64)`.** Replaces the `MAX_GROUP_COUNT
+  = 100_000` panic-style cap with a configurable budget. Default
+  256 MiB ≈ 1M groups (≈ 10× lift). New `QueryError::AggregateMemoryExceeded
+  { budget, observed }` error variant. Construction via
+  `try_new` or `TryFrom<u64>` rejects budgets below the 64 KiB
+  floor with a structured error.
+- **`DateField`** closed enum (`Year`/`Month`/`Day`/`Hour`/
+  `Minute`/`Second`/`Millisecond`/`Microsecond`/`DayOfWeek`/
+  `DayOfYear`/`Quarter`/`Week`/`Epoch`) drives both `EXTRACT`
+  and `DATE_TRUNC`. `is_truncatable()` projects to the
+  `DATE_TRUNC` subset.
+- **`SubstringRange { start: i64, length: Option<i64> }`** typed
+  primitive — negative `length` rejected at construction.
+
+### Added — verification & tooling
+
+- **`specs/tla/ScalarPurity.tla`** formal-verification spec.
+  Four meta-theorems (`DeterminismTheorem`, `NoIOTheorem`,
+  `NullPropagationTheorem`, `CastLosslessTheorem`) plus a
+  meta-theorem (`FoldThenEvaluateIsPure`) covering the
+  plan-time-fold contract for time-now sentinels.
+- **`audit-matrix` tool** (`crates/kimberlite-compliance/src/bin/audit-matrix.rs`).
+  Pure-stdlib workspace scanner that emits a Markdown
+  traceability matrix from `AUDIT-YYYY-NN <code>` source markers.
+  342 markers indexed in this release. Marker taxonomy extended
+  with new `T` (Traceability hook) variant. New `just audit-matrix`
+  generates the matrix; `just audit-matrix-check` is the CI
+  drift-detector gate (same pattern as `cargo fmt --check`).
+- **16 scaffolded VOPR scenarios** in
+  `crates/kimberlite-sim/src/scenarios.rs` covering the v0.6.0
+  command families: `MaskingClassMonotonicity`,
+  `MaskingDuplicateClassDefinition`,
+  `MaskingCrashAfterDdlBeforeReplay`,
+  `MaskingClassReadDuringRotation`, `UpsertConcurrentInsertSamePk`,
+  `UpsertCrashMidConflict`, `UpsertWithComputedReturning`,
+  `UpsertOnNonUniqueIndex`, `AsOfBeforeRetentionHorizon`,
+  `AsOfDuringWrite`, `AsOfMonotonicityUnderClockSkew`,
+  `AsOfRoundTripDeterminism`,
+  `EraseAutoDiscoveryAcrossSchemaVersions`,
+  `EraseAutoDiscoveryWithDroppedColumn`,
+  `EraseAutoDiscoveryDeterminism`,
+  `EraseAutoDiscoveryWithCrashMidScan`. Each variant carries the
+  canary mutation it surfaces; full drivers ship per-family in
+  v0.8.0 commits.
+- **`tools/publish-order-check`** standalone Rust binary +
+  `just validate-publish-order` recipe. Pairwise topological
+  validator (NOT a single-toposort comparison — that would
+  false-positive on alternative valid orders) for
+  `PUBLISH_CRATES`. Surfaced and fixed a real ordering bug
+  (`kimberlite-test-harness` was published before its production
+  deps `kimberlite-client` and `kimberlite-server`).
+
+### Added — SDK & DX
+
+- **`examples/cookbook/`** with three runnable recipes per the
+  v0.7.0 ROADMAP "Cookbook examples for already-shipped primitives
+  that downstream consumers keep missing":
+  - `subscriptions/` — `client.subscribe(streamId, { startOffset })`
+    AsyncIterable with credit-based flow control. Closes the
+    "Notebar still believes the client is pull-only" gap.
+  - `secondary-index/` — `CREATE INDEX ON projection(provider,
+    providerMessageId)` + `EXPLAIN`-asserts-IndexScan.
+  - `consent-decline/` — `recordConsent({ termsVersion,
+    accepted: false })` with audit-trail verification.
+  Each recipe ships TypeScript + Python with shared
+  `KMB_COOKBOOK_OK` stdout marker for CI gate.
+
+### Fixed
+
+- **Catalog staleness on `DROP TABLE` + `CREATE TABLE` (same
+  name).** Root cause: `Effect::TableMetadataDrop` did not call
+  `rebuild_query_engine_schema()` while `Effect::TableMetadataWrite`
+  did — the asymmetry left the per-tenant `QueryEngine` cache
+  holding the dropped table's `TableDef`. Reproducer test
+  pinned at `crates/kimberlite/tests/catalog_staleness.rs`.
+  Closes the v0.6.2-deferred bug; notebar's DDL test loop now
+  runs without the unique-table-name workaround.
+- **Inverted-range planner output.** Fixed at the lowering
+  source: `compute_range_bounds` now detects unsatisfiable
+  predicate combinations (`x > 5 AND x < 3`, etc.) and returns
+  `RangeBoundsResult::is_empty = true`; the caller short-
+  circuits to `AccessPath::TableScan` with an `AlwaysFalse`
+  predicate. The `kimberlite-store::btree::scan` debug_assert
+  is now unconditional — the v0.6.1 `cfg(not(fuzzing))` escape
+  hatch is removed because the planner no longer emits inverted
+  ranges in any code path. Property tests in
+  `tests/property_tests.rs` pin the invariant.
+- **`DELETE FROM t` (no WHERE) `rows_affected` postcondition.**
+  Added `assert_eq!(rows_affected as usize, expected_rows)`
+  postcondition + reproducer integration test. The kernel-side
+  count was always correct; the missing piece was the executable
+  contract.
+- **MIRI nightly-lite timeout regression.** Annotated the heavy
+  AES-GCM roundtrip test (`encryption::tests::large_plaintext_encryption`)
+  with `#[cfg_attr(miri, ignore = ...)]`. PRESSURECRAFT §4
+  routes correctness checks for crypto internals to property
+  tests + fuzz under standard `cargo test`; MIRI's value is
+  UB detection on the unsafe / FFI surface. Closes the
+  90-min `TimeoutStartSec` overrun.
+
+### Safety — new production assertions
+
+Per the `docs/internals/testing/assertions-inventory.md` policy:
+
+- `crates/kimberlite/src/tenant.rs::execute_delete` —
+  postcondition asserting `rows_affected` matches the planner's
+  matched-row count (AUDIT-2026-05 S3.5).
+- `crates/kimberlite-types/src/domain.rs::AggregateMemoryBudget` —
+  precondition rejecting budgets below the 64 KiB floor +
+  postcondition round-trip on the accessor (AUDIT-2026-05 H-4).
+- `crates/kimberlite-types/src/domain.rs::Interval::try_from_components` —
+  postcondition `|nanos| < NANOS_PER_DAY` invariant
+  (AUDIT-2026-05 S3.9).
+- `crates/kimberlite-store/src/btree.rs::scan` — restored
+  unconditional debug_assert on range orientation (AUDIT-2026-05
+  H-3).
+- 9 paired `#[should_panic]` tests for the 9 new scalar
+  variants' precondition asserts.
+
+### Found by
+
+`notebar` healthcare-reporting integration (catalog staleness on
+the per-test DDL loop, GROUP BY scale ceiling on the
+`ar_ledger` GST drill-down) + the April 2026 fuzz-to-types
+campaign continuation (inverted-range planner regression seeds
+fed into v0.7.0 property tests).
+
+### Known issue (deferred to v0.8.0)
+
+- **DROP TABLE is metadata-only** — projection-store rows survive
+  a `DROP TABLE`. Recreating a table with the same name observes
+  the old data on first read. Tracked at
+  `crates/kimberlite/tests/catalog_staleness.rs::drop_does_not_yet_purge_projection_rows`
+  with `#[ignore]` so the regression net trips when the data-purge
+  effect lands. Workaround for v0.7.0 consumers: use a fresh
+  primary key after recreation, or use unique table names per
+  test invocation (notebar pattern).
 
 ---
 

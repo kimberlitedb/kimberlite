@@ -1083,14 +1083,58 @@ PUBLISH_CRATES := "
     kimberlite-compliance
     kimberlite-event-sourcing
     kimberlite
-    kimberlite-test-harness
     kimberlite-client
     kimberlite-server
+    kimberlite-test-harness
     kimberlite-config
     kimberlite-migration
     kimberlite-sharing
     kimberlite-mcp
 "
+
+# AUDIT-2026-05 H-5 — pairwise topological validator for the
+# PUBLISH_CRATES list. Runs the standalone `tools/publish-order-check`
+# binary, which reads `cargo metadata --no-deps` and asserts that
+# every crate's workspace dep (production / build kinds, not dev)
+# appears at a lower index in PUBLISH_CRATES. Multiple valid topo
+# orders exist; the pairwise check is the only invariant that
+# doesn't false-positive on alternative orderings. Hooks into
+# release-dry-run as Gate 7, before publish-dry-run, so we catch
+# order issues before paying the 25-crate dry-run cost.
+validate-publish-order:
+    @echo "🔗 Validating PUBLISH_CRATES topological order..."
+    @cd tools/publish-order-check && cargo build --release --quiet
+    @tools/publish-order-check/target/release/publish-order-check "{{PUBLISH_CRATES}}"
+
+# v0.7.0 — sign the release tag with the org-managed GPG key.
+# Pre-push hook on the release branch enforces the signed-tag
+# invariant; this recipe is the canonical local-sign step.
+# Verification: `git tag -v v{{version}}` against the public key
+# at `keys/release-signing.asc`.
+release-tag-sign version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! git config user.signingkey >/dev/null; then
+        echo "❌ git config user.signingkey is unset — see docs/operating/release-process.md"
+        exit 1
+    fi
+    git tag -s -a "v{{version}}" -m "Release v{{version}}"
+    git tag -v "v{{version}}"
+    echo "✓ signed tag v{{version}} verified"
+
+# v0.7.0 — generate the AUDIT traceability matrix from in-source
+# markers. Output goes to docs/internals/compliance/traceability-matrix.md.
+audit-matrix:
+    @echo "📋 Generating traceability matrix..."
+    @mkdir -p docs/internals/compliance
+    @cargo run -q -p kimberlite-compliance --bin audit-matrix -- \
+        --root . --out docs/internals/compliance/traceability-matrix.md
+
+# CI gate — exits 1 if traceability-matrix.md is stale relative
+# to the current source markers. Same pattern as `cargo fmt --check`.
+audit-matrix-check:
+    @cargo run -q -p kimberlite-compliance --bin audit-matrix -- \
+        --root . --out docs/internals/compliance/traceability-matrix.md --check
 
 # Publish all crates to crates.io (DRY RUN — no network writes)
 publish-dry-run:

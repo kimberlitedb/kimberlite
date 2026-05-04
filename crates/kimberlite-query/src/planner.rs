@@ -1278,6 +1278,17 @@ pub(crate) fn substitute_scalar_params(expr: &ScalarExpr, params: &[Value]) -> R
             }
             ScalarExpr::Nullif(a, b) => ScalarExpr::Nullif(Box::new(s(a, p)?), Box::new(s(b, p)?)),
             ScalarExpr::Cast(x, t) => ScalarExpr::Cast(Box::new(s(x, p)?), *t),
+            // v0.7.0 scalar functions — recurse into operands.
+            ScalarExpr::Mod(a, b) => ScalarExpr::Mod(Box::new(s(a, p)?), Box::new(s(b, p)?)),
+            ScalarExpr::Power(a, b) => ScalarExpr::Power(Box::new(s(a, p)?), Box::new(s(b, p)?)),
+            ScalarExpr::Sqrt(x) => ScalarExpr::Sqrt(Box::new(s(x, p)?)),
+            ScalarExpr::Substring(x, r) => ScalarExpr::Substring(Box::new(s(x, p)?), *r),
+            ScalarExpr::Extract(f, x) => ScalarExpr::Extract(*f, Box::new(s(x, p)?)),
+            ScalarExpr::DateTrunc(f, x) => ScalarExpr::DateTrunc(*f, Box::new(s(x, p)?)),
+            // Time-now sentinels carry no operands; identity.
+            ScalarExpr::Now => ScalarExpr::Now,
+            ScalarExpr::CurrentTimestamp => ScalarExpr::CurrentTimestamp,
+            ScalarExpr::CurrentDate => ScalarExpr::CurrentDate,
         })
     }
     s(expr, params)
@@ -1345,6 +1356,18 @@ fn analyze_access_path(table_def: &TableDef, predicates: &[ResolvedPredicate]) -
         if !pk_predicates.is_empty() {
             let bounds_result = compute_range_bounds(&pk_predicates);
 
+            // Unsatisfiable bound set (e.g., `x > 5 AND x < 3`) —
+            // short-circuit before the store ever sees an inverted
+            // range. AUDIT-2026-05 H-3.
+            if bounds_result.is_empty {
+                return AccessPath::TableScan {
+                    predicates: vec![ResolvedPredicate {
+                        column: ColumnName::new(String::new()),
+                        op: ResolvedOp::AlwaysFalse,
+                    }],
+                };
+            }
+
             // If we have useful bounds (not both unbounded), use range scan
             let has_bounds = !matches!(
                 (&bounds_result.start, &bounds_result.end),
@@ -1394,6 +1417,15 @@ struct RangeBoundsResult {
     end: Bound<kimberlite_store::Key>,
     /// Predicates that couldn't be converted to bounds (e.g., IN).
     unconverted: Vec<ResolvedPredicate>,
+    /// AUDIT-2026-05 H-3 — set when the lowering produced an
+    /// unsatisfiable predicate set (e.g. `x > 5 AND x < 3`). The
+    /// caller is responsible for short-circuiting to an empty
+    /// result rather than passing inverted bounds down to the
+    /// store, which would have to defensively clamp them. Closes
+    /// the inverted-range planner output deferred from v0.6.1
+    /// (the `cfg(not(fuzzing))` debug-assert escape hatch in
+    /// `kimberlite-store::btree::scan`).
+    is_empty: bool,
 }
 
 /// Computes range bounds from predicates on a single column.
@@ -1442,25 +1474,71 @@ fn compute_range_bounds(predicates: &[&ResolvedPredicate]) -> RangeBoundsResult 
         }
     }
 
-    let start = match lower {
-        Some((val, true)) => Bound::Included(encode_key(&[val])),
-        Some((val, false)) => Bound::Excluded(encode_key(&[val])),
+    let start = match &lower {
+        Some((val, true)) => Bound::Included(encode_key(&[val.clone()])),
+        Some((val, false)) => Bound::Excluded(encode_key(&[val.clone()])),
         None => Bound::Unbounded,
     };
 
-    let end = match upper {
+    let end = match &upper {
         Some((val, true)) => {
             // For inclusive upper bound, we need the successor key
-            Bound::Excluded(successor_key(&encode_key(&[val])))
+            Bound::Excluded(successor_key(&encode_key(&[val.clone()])))
         }
-        Some((val, false)) => Bound::Excluded(encode_key(&[val])),
+        Some((val, false)) => Bound::Excluded(encode_key(&[val.clone()])),
         None => Bound::Unbounded,
     };
+
+    // AUDIT-2026-05 H-3 — detect unsatisfiable bound combinations
+    // upstream of the storage scan. A prior version relied on the
+    // store's defensive clamp (`if range.start >= range.end { return
+    // empty }`) plus a `cfg(not(fuzzing))` debug-assert; the
+    // assert had to be muted because the planner legitimately
+    // emitted inverted ranges for inputs like `x > 5 AND x < 3`.
+    // Detecting at the source means the store can keep its
+    // assertion live in fuzz builds too — closing the loop with
+    // PRESSURECRAFT §3 (parse-don't-validate: an inverted range
+    // is now unrepresentable in `RangeBoundsResult` whose caller
+    // honours `is_empty`).
+    let is_empty = bounds_are_unsatisfiable(&start, &end);
 
     RangeBoundsResult {
         start,
         end,
         unconverted,
+        is_empty,
+    }
+}
+
+/// Returns `true` when the (start, end) pair describes the empty
+/// range: encoded `start_bytes > end_bytes`, or `start_bytes ==
+/// end_bytes` with at least one side excluded.
+///
+/// `Unbounded` on either side is never empty (one-sided ranges are
+/// satisfiable). Bytes-level comparison is the source of truth:
+/// post-encoding inversion (e.g. successor-key arithmetic on
+/// inclusive-upper bounds) is what the downstream store sees, so
+/// that's what we check.
+fn bounds_are_unsatisfiable(
+    start: &Bound<kimberlite_store::Key>,
+    end: &Bound<kimberlite_store::Key>,
+) -> bool {
+    use std::cmp::Ordering;
+    let (start_bytes, start_excluded) = match start {
+        Bound::Included(b) => (b.as_ref(), false),
+        Bound::Excluded(b) => (b.as_ref(), true),
+        Bound::Unbounded => return false,
+    };
+    let (end_bytes, end_excluded) = match end {
+        Bound::Included(b) => (b.as_ref(), false),
+        Bound::Excluded(b) => (b.as_ref(), true),
+        Bound::Unbounded => return false,
+    };
+
+    match start_bytes.cmp(end_bytes) {
+        Ordering::Greater => true,
+        Ordering::Equal => start_excluded || end_excluded,
+        Ordering::Less => false,
     }
 }
 
@@ -1508,6 +1586,17 @@ fn find_usable_indexes<'a>(
 
         // Compute range bounds for this index
         let bounds_result = compute_range_bounds(&first_col_predicates);
+
+        // Unsatisfiable bounds disqualify the index entirely; the
+        // caller's PK-range short-circuit (above) already handles
+        // the common case, but a non-PK index reaching here with
+        // an inverted predicate set would otherwise emit an
+        // inverted-range scan. Skip silently — the table-scan
+        // fallback's `AlwaysFalse` predicate will report empty.
+        // AUDIT-2026-05 H-3.
+        if bounds_result.is_empty {
+            continue;
+        }
 
         // Skip if both bounds are unbounded (no useful range)
         if matches!(
@@ -1894,5 +1983,81 @@ mod tests {
         let result = plan_query(&schema, &parsed, &[]);
 
         assert!(matches!(result, Err(QueryError::ColumnNotFound { .. })));
+    }
+
+    // AUDIT-2026-05 H-3 — inverted-range planner regression
+    // coverage. Every shape that produces an unsatisfiable PK
+    // predicate set must short-circuit to a TableScan with an
+    // AlwaysFalse filter, never an inverted RangeScan that the
+    // store has to defensively clamp.
+
+    #[test]
+    fn inverted_range_pk_short_circuits_to_alwaysfalse_table_scan() {
+        let schema = test_schema();
+        let parsed = parse_test_select("SELECT * FROM users WHERE id > 5 AND id < 3");
+        let plan = plan_query(&schema, &parsed, &[]).unwrap();
+
+        match plan {
+            QueryPlan::TableScan { filter, .. } => {
+                let filter_str = format!("{filter:?}");
+                assert!(
+                    filter_str.contains("AlwaysFalse"),
+                    "expected AlwaysFalse filter for x > 5 AND x < 3, got: {filter_str}"
+                );
+            }
+            other => panic!("expected TableScan with AlwaysFalse filter, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn excluded_equal_bounds_pk_short_circuits() {
+        // x > 5 AND x < 5 — bounds at the same value but both excluded.
+        let schema = test_schema();
+        let parsed = parse_test_select("SELECT * FROM users WHERE id > 5 AND id < 5");
+        let plan = plan_query(&schema, &parsed, &[]).unwrap();
+        assert!(matches!(plan, QueryPlan::TableScan { .. }));
+    }
+
+    #[test]
+    fn one_sided_lower_bound_still_uses_range_scan() {
+        // Sanity: x > 5 (no upper) is satisfiable, must remain a
+        // RangeScan. Guards against an over-eager is_empty
+        // detector that flags Unbounded-on-one-side as empty.
+        let schema = test_schema();
+        let parsed = parse_test_select("SELECT * FROM users WHERE id > 5");
+        let plan = plan_query(&schema, &parsed, &[]).unwrap();
+        assert!(matches!(plan, QueryPlan::RangeScan { .. }));
+    }
+
+    #[test]
+    fn bounds_are_unsatisfiable_unit() {
+        // Direct test of the helper — not via the planner so any
+        // refactor of compute_range_bounds keeps the contract
+        // intact.
+        use std::ops::Bound;
+
+        // Both unbounded → satisfiable.
+        assert!(!bounds_are_unsatisfiable(
+            &Bound::<kimberlite_store::Key>::Unbounded,
+            &Bound::Unbounded,
+        ));
+        // Inclusive equal → satisfiable (point lookup).
+        let k = kimberlite_store::Key::from(vec![1u8, 2, 3]);
+        assert!(!bounds_are_unsatisfiable(
+            &Bound::Included(k.clone()),
+            &Bound::Included(k.clone()),
+        ));
+        // Excluded equal → empty.
+        assert!(bounds_are_unsatisfiable(
+            &Bound::Excluded(k.clone()),
+            &Bound::Excluded(k.clone()),
+        ));
+        // start > end → empty.
+        let k_high = kimberlite_store::Key::from(vec![9u8]);
+        let k_low = kimberlite_store::Key::from(vec![1u8]);
+        assert!(bounds_are_unsatisfiable(
+            &Bound::Included(k_high),
+            &Bound::Included(k_low),
+        ));
     }
 }

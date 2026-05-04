@@ -219,6 +219,115 @@ pub enum ScenarioType {
     /// record that a subsequent erase call can resume — no silent
     /// incomplete-erasure state.
     EraseSubjectWithCrash,
+
+    // ========================================================================
+    // v0.7.0 — workload-generator families for v0.6.0 command surfaces
+    // AUDIT-2026-05 M-7. Scaffolded — full drivers ship per-family in
+    // subsequent commits. Each variant carries the canary mutation it
+    // surfaces so the driver author has the contract pinned upfront.
+    // ========================================================================
+
+    // ---- Masking* family ------------------------------------------------
+    /// Masking class monotonicity: a row written under classification
+    /// `Confidential` must never surface at a lower class
+    /// (`Public`/`Internal`) on subsequent reads. Canary: a planner
+    /// rewrite path that drops the masking-policy attachment without
+    /// re-classifying the data.
+    MaskingClassMonotonicity,
+    /// Duplicate `CreateMask` definition: submitting two
+    /// `CreateMaskingPolicy` commands with the same name must reject
+    /// the second one rather than silently overwriting. Canary: an
+    /// idempotency-style "second create succeeds" implementation that
+    /// loses the audit trail of the original.
+    MaskingDuplicateClassDefinition,
+    /// Crash after DDL but before replay: storage crash between
+    /// `Effect::CreateMaskingPolicy` and the projection-store write.
+    /// Recovery must replay the masking class BEFORE replaying any
+    /// row that references the column it masks. Canary: a recovery
+    /// reordering that admits a row read against an unmasked column
+    /// before the policy attaches.
+    MaskingCrashAfterDdlBeforeReplay,
+    /// Read during rotation: concurrent `AlterTable AttachMaskingPolicy`
+    /// while reads are in flight. The kernel's `RoleGuard::should_mask`
+    /// pre-check must observe the new policy or the old one — never a
+    /// torn intermediate. Canary: a half-applied class swap that lets
+    /// a read see the old policy's mask scope but the new policy's
+    /// strategy.
+    MaskingClassReadDuringRotation,
+
+    // ---- Upsert* family -------------------------------------------------
+    /// Concurrent INSERTs racing on the same primary key with `ON
+    /// CONFLICT DO UPDATE`. Single-writer-per-tenant VSR linearises;
+    /// `rows_affected` must be consistent across both connections.
+    /// Canary: an executor that double-counts `rows_affected` when
+    /// the conflict resolution returns `Updated`.
+    UpsertConcurrentInsertSamePk,
+    /// Crash mid-conflict resolution: storage crash injected between
+    /// the conflict detection and the `UpsertApplied` event emit.
+    /// Replay must produce exactly one `UpsertApplied` per logical
+    /// upsert. Canary: replay duplicates the effect, surfacing as
+    /// inflated `rows_affected` on next read.
+    UpsertCrashMidConflict,
+    /// `RETURNING` reflects the post-upsert row, not the pre-upsert
+    /// state. Canary: a planner path that captures the row image
+    /// before the upsert applies (e.g., from the WHERE-clause scan
+    /// rather than the post-effect projection state).
+    UpsertWithComputedReturning,
+    /// `INSERT ... ON CONFLICT (col)` against a non-unique index —
+    /// the planner must reject this at planning time. Canary: the
+    /// planner accepts the statement and the conflict resolution
+    /// chooses one row at random.
+    UpsertOnNonUniqueIndex,
+
+    // ---- AsOfTimestamp* family -----------------------------------------
+    /// `AS OF TIMESTAMP <t>` where `t` is older than the retention
+    /// horizon. Must surface `AsOfBeforeRetentionHorizon` rather than
+    /// silently returning empty. Canary: an executor that maps "no
+    /// rows in retained range" to `Vec::new()` without consulting
+    /// the horizon.
+    AsOfBeforeRetentionHorizon,
+    /// `AS OF TIMESTAMP` issued mid-write: time-travel read must see
+    /// either the pre-write state OR the post-write state, never a
+    /// half-applied effect. Canary: the reader observes a
+    /// projection-store row before the corresponding kernel-state
+    /// commit (or vice versa).
+    AsOfDuringWrite,
+    /// Clock skew between replicas: `AS OF` resolutions on different
+    /// replicas must agree on the resolved offset. A later
+    /// `AS OF t` returning fewer rows than an earlier `AS OF (t - δ)`
+    /// is a monotonicity violation. Canary: the resolver uses the
+    /// local replica's clock instead of the consensus-attested
+    /// timestamp.
+    AsOfMonotonicityUnderClockSkew,
+    /// Same `AS OF TIMESTAMP` query, replayed on different replicas,
+    /// must yield identical row sets. Canary: a non-deterministic
+    /// tie-breaker in the timestamp-resolver returns different
+    /// offsets across replicas.
+    AsOfRoundTripDeterminism,
+
+    // ---- EraseAutoDiscovery* family ------------------------------------
+    /// `eraseSubject` auto-discovery across schema versions: a
+    /// column added pre-erase via `ALTER TABLE ADD COLUMN PII` MUST
+    /// be discovered. Canary: discovery walks the v0 schema and
+    /// misses post-ALTER columns.
+    EraseAutoDiscoveryAcrossSchemaVersions,
+    /// Auto-discovery encountering a dropped column: a column
+    /// removed via `ALTER TABLE DROP COLUMN` between erase request
+    /// and discovery walk must be skipped without erroring. Canary:
+    /// discovery panics or counts the dropped column as an
+    /// in-progress erasure that never completes.
+    EraseAutoDiscoveryWithDroppedColumn,
+    /// Discovery determinism: same erase request on the same data
+    /// produces the same certificate hash on every replica. Canary:
+    /// HashMap iteration order leaks into the discovery sequence,
+    /// breaking the certificate-hash invariant.
+    EraseAutoDiscoveryDeterminism,
+    /// Crash mid-scan during auto-discovery: storage crash between
+    /// the kernel-state catalog read and the per-stream erasure
+    /// loop. Recovery must re-issue the scan, not report the
+    /// partial result as complete. Canary: an in-progress-erasure
+    /// audit record gets misclassified as `Completed`.
+    EraseAutoDiscoveryWithCrashMidScan,
 }
 
 impl ScenarioType {
@@ -302,6 +411,28 @@ impl ScenarioType {
             Self::AlterTableCrashRecovery => "ALTER TABLE: Crash Recovery",
             Self::MaskingRoleTransition => "Masking: Role Transition",
             Self::EraseSubjectWithCrash => "Erasure: Subject With Crash",
+            // v0.7.0 — Masking* family.
+            Self::MaskingClassMonotonicity => "Masking: Class Monotonicity",
+            Self::MaskingDuplicateClassDefinition => "Masking: Duplicate Class Definition",
+            Self::MaskingCrashAfterDdlBeforeReplay => "Masking: Crash After DDL Before Replay",
+            Self::MaskingClassReadDuringRotation => "Masking: Read During Rotation",
+            // v0.7.0 — Upsert* family.
+            Self::UpsertConcurrentInsertSamePk => "Upsert: Concurrent Insert Same PK",
+            Self::UpsertCrashMidConflict => "Upsert: Crash Mid Conflict",
+            Self::UpsertWithComputedReturning => "Upsert: With Computed RETURNING",
+            Self::UpsertOnNonUniqueIndex => "Upsert: On Non-Unique Index",
+            // v0.7.0 — AsOfTimestamp* family.
+            Self::AsOfBeforeRetentionHorizon => "AS OF: Before Retention Horizon",
+            Self::AsOfDuringWrite => "AS OF: During Write",
+            Self::AsOfMonotonicityUnderClockSkew => "AS OF: Monotonicity Under Clock Skew",
+            Self::AsOfRoundTripDeterminism => "AS OF: Round-Trip Determinism",
+            // v0.7.0 — EraseAutoDiscovery* family.
+            Self::EraseAutoDiscoveryAcrossSchemaVersions => {
+                "Erase Auto-Discovery: Across Schema Versions"
+            }
+            Self::EraseAutoDiscoveryWithDroppedColumn => "Erase Auto-Discovery: Dropped Column",
+            Self::EraseAutoDiscoveryDeterminism => "Erase Auto-Discovery: Determinism",
+            Self::EraseAutoDiscoveryWithCrashMidScan => "Erase Auto-Discovery: Crash Mid-Scan",
         }
     }
 
@@ -530,6 +661,62 @@ impl ScenarioType {
             Self::EraseSubjectWithCrash => {
                 "eraseSubject crash-recovery: storage crashes injected mid-erasure-loop. Post-recovery yields a valid hash-chain and either a signed completion proof or a resumable in-progress audit record — no silent incomplete-erasure state. (v0.6.0 Tier 2 #4)"
             }
+
+            // v0.7.0 — Masking* family.
+            Self::MaskingClassMonotonicity => {
+                "Masking class monotonicity: a row written under a higher classification must never re-surface at a lower class. (v0.7.0 scaffold)"
+            }
+            Self::MaskingDuplicateClassDefinition => {
+                "Duplicate `CreateMaskingPolicy` with the same name must reject the second submission. (v0.7.0 scaffold)"
+            }
+            Self::MaskingCrashAfterDdlBeforeReplay => {
+                "Crash between policy effect emit and projection-store write must replay the policy before any data row that references the masked column. (v0.7.0 scaffold)"
+            }
+            Self::MaskingClassReadDuringRotation => {
+                "Concurrent ALTER TABLE AttachMaskingPolicy with in-flight reads must observe a single coherent policy view. (v0.7.0 scaffold)"
+            }
+
+            // v0.7.0 — Upsert* family.
+            Self::UpsertConcurrentInsertSamePk => {
+                "Concurrent INSERT ... ON CONFLICT on the same PK serialises through the single-writer queue with consistent rows_affected. (v0.7.0 scaffold)"
+            }
+            Self::UpsertCrashMidConflict => {
+                "Storage crash mid-conflict resolution: replay produces exactly one UpsertApplied effect per logical upsert. (v0.7.0 scaffold)"
+            }
+            Self::UpsertWithComputedReturning => {
+                "RETURNING reflects the post-upsert row, not the pre-upsert state. (v0.7.0 scaffold)"
+            }
+            Self::UpsertOnNonUniqueIndex => {
+                "INSERT ... ON CONFLICT (col) against a non-unique index must be rejected at planning time. (v0.7.0 scaffold)"
+            }
+
+            // v0.7.0 — AsOfTimestamp* family.
+            Self::AsOfBeforeRetentionHorizon => {
+                "AS OF TIMESTAMP older than retention horizon surfaces AsOfBeforeRetentionHorizon, not silent empty. (v0.7.0 scaffold)"
+            }
+            Self::AsOfDuringWrite => {
+                "Time-travel read concurrent with a write sees pre-write or post-write state, never a half-applied effect. (v0.7.0 scaffold)"
+            }
+            Self::AsOfMonotonicityUnderClockSkew => {
+                "AS OF resolutions across replicas with skewed clocks agree on the resolved offset; later AS OF never returns fewer rows. (v0.7.0 scaffold)"
+            }
+            Self::AsOfRoundTripDeterminism => {
+                "Same AS OF TIMESTAMP query yields identical row sets on every replica. (v0.7.0 scaffold)"
+            }
+
+            // v0.7.0 — EraseAutoDiscovery* family.
+            Self::EraseAutoDiscoveryAcrossSchemaVersions => {
+                "eraseSubject auto-discovery includes columns added post-ALTER TABLE. (v0.7.0 scaffold)"
+            }
+            Self::EraseAutoDiscoveryWithDroppedColumn => {
+                "Auto-discovery skips dropped columns without error. (v0.7.0 scaffold)"
+            }
+            Self::EraseAutoDiscoveryDeterminism => {
+                "Discovery sequence is replica-deterministic; certificate hash matches across replicas. (v0.7.0 scaffold)"
+            }
+            Self::EraseAutoDiscoveryWithCrashMidScan => {
+                "Storage crash mid-discovery re-issues the scan; partial results never reported as Completed. (v0.7.0 scaffold)"
+            }
         }
     }
 
@@ -558,6 +745,26 @@ impl ScenarioType {
                 | Self::UpgradeFeatureActivation
                 | Self::StandbyPromotion
                 | Self::StandbyReadScaling
+                // v0.7.0 — workload-generator scaffolds. Drivers
+                // ship per-family in subsequent commits; until
+                // then the entries are visible via
+                // `--list-aspirational-scenarios` only.
+                | Self::MaskingClassMonotonicity
+                | Self::MaskingDuplicateClassDefinition
+                | Self::MaskingCrashAfterDdlBeforeReplay
+                | Self::MaskingClassReadDuringRotation
+                | Self::UpsertConcurrentInsertSamePk
+                | Self::UpsertCrashMidConflict
+                | Self::UpsertWithComputedReturning
+                | Self::UpsertOnNonUniqueIndex
+                | Self::AsOfBeforeRetentionHorizon
+                | Self::AsOfDuringWrite
+                | Self::AsOfMonotonicityUnderClockSkew
+                | Self::AsOfRoundTripDeterminism
+                | Self::EraseAutoDiscoveryAcrossSchemaVersions
+                | Self::EraseAutoDiscoveryWithDroppedColumn
+                | Self::EraseAutoDiscoveryDeterminism
+                | Self::EraseAutoDiscoveryWithCrashMidScan
         )
     }
 
@@ -648,6 +855,23 @@ impl ScenarioType {
             Self::AlterTableCrashRecovery,
             Self::MaskingRoleTransition,
             Self::EraseSubjectWithCrash,
+            // v0.7.0 — workload-generator scaffolds.
+            Self::MaskingClassMonotonicity,
+            Self::MaskingDuplicateClassDefinition,
+            Self::MaskingCrashAfterDdlBeforeReplay,
+            Self::MaskingClassReadDuringRotation,
+            Self::UpsertConcurrentInsertSamePk,
+            Self::UpsertCrashMidConflict,
+            Self::UpsertWithComputedReturning,
+            Self::UpsertOnNonUniqueIndex,
+            Self::AsOfBeforeRetentionHorizon,
+            Self::AsOfDuringWrite,
+            Self::AsOfMonotonicityUnderClockSkew,
+            Self::AsOfRoundTripDeterminism,
+            Self::EraseAutoDiscoveryAcrossSchemaVersions,
+            Self::EraseAutoDiscoveryWithDroppedColumn,
+            Self::EraseAutoDiscoveryDeterminism,
+            Self::EraseAutoDiscoveryWithCrashMidScan,
         ]
     }
 }
@@ -770,7 +994,47 @@ impl ScenarioConfig {
             ScenarioType::AlterTableCrashRecovery => Self::alter_table_crash_recovery(&mut rng),
             ScenarioType::MaskingRoleTransition => Self::masking_role_transition(&mut rng),
             ScenarioType::EraseSubjectWithCrash => Self::erase_subject_with_crash(&mut rng),
+
+            // v0.7.0 — workload-generator scaffolds. Each delegates to
+            // the in-tree `aspirational_v07` factory, which builds a
+            // baseline `ScenarioConfig` annotated with the canary
+            // contract. Drivers ship per-family in subsequent
+            // commits; the scaffold keeps the variants reachable
+            // through `ScenarioConfig::new` so `vopr --list-aspirational-scenarios`
+            // surfaces the contract today.
+            ScenarioType::MaskingClassMonotonicity
+            | ScenarioType::MaskingDuplicateClassDefinition
+            | ScenarioType::MaskingCrashAfterDdlBeforeReplay
+            | ScenarioType::MaskingClassReadDuringRotation
+            | ScenarioType::UpsertConcurrentInsertSamePk
+            | ScenarioType::UpsertCrashMidConflict
+            | ScenarioType::UpsertWithComputedReturning
+            | ScenarioType::UpsertOnNonUniqueIndex
+            | ScenarioType::AsOfBeforeRetentionHorizon
+            | ScenarioType::AsOfDuringWrite
+            | ScenarioType::AsOfMonotonicityUnderClockSkew
+            | ScenarioType::AsOfRoundTripDeterminism
+            | ScenarioType::EraseAutoDiscoveryAcrossSchemaVersions
+            | ScenarioType::EraseAutoDiscoveryWithDroppedColumn
+            | ScenarioType::EraseAutoDiscoveryDeterminism
+            | ScenarioType::EraseAutoDiscoveryWithCrashMidScan => {
+                Self::aspirational_v07(scenario_type)
+            }
         }
+    }
+
+    /// v0.7.0 scaffold factory for the 16 workload-generator scenarios.
+    /// Returns a baseline `ScenarioConfig` carrying the scenario_type
+    /// so `--list-aspirational-scenarios` can describe the canary
+    /// contract. The actual driver step is wired up in subsequent
+    /// commits per family; until then these scenarios run the
+    /// baseline workload.
+    fn aspirational_v07(scenario_type: ScenarioType) -> Self {
+        // AUDIT-2026-05 M-7. Use baseline scaffolding so no exotic
+        // injectors fire prematurely.
+        let mut cfg = Self::baseline();
+        cfg.scenario_type = scenario_type;
+        cfg
     }
 
     /// Baseline scenario: no faults.

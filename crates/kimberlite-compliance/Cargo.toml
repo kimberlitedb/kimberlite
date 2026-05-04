@@ -63,3 +63,11 @@ proptest.workspace = true
 [[bin]]
 name = "kimberlite-compliance"
 path = "src/main.rs"
+
+# AUDIT-2026-05 T1 — auto-generated traceability matrix tool. Scans
+# the workspace for AUDIT-YYYY-NN markers in source comments and
+# emits a Markdown table cross-referenced against the audit
+# documents under docs-internal/audit/.
+[[bin]]
+name = "audit-matrix"
+path = "src/bin/audit-matrix.rs"

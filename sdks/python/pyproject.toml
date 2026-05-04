@@ -12,10 +12,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kimberlite"
-version = "0.6.2"
+version = "0.7.0"
 description = "Python SDK for Kimberlite database"
 readme = "README.md"
-requires-python = ">=3.9"
+# v0.7.0 — floor bumped 3.9 → 3.10. Python 3.9 reached EOL
+# 2025-10. The bump unlocks PEP 604 union syntax (`X | None`) at
+# runtime (not just under `from __future__ import annotations`),
+# which the typing-refresh roadmap item leans on. Downstream
+# consumers pinned to 3.9 should hold at kimberlite==0.6.2 until
+# they upgrade their interpreter.
+requires-python = ">=3.10"
 # PEP 639: SPDX expression, not the legacy `license = {text = ...}`
 # form. Combined with the deletion of the legacy
 # `License :: OSI Approved :: Apache Software License` classifier
@@ -33,7 +39,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -67,7 +72,8 @@ include = ["kimberlite*"]
 kimberlite = ["lib/*.so", "lib/*.dylib", "lib/*.dll", "py.typed"]
 
 [tool.mypy]
-python_version = "3.9"
+# v0.7.0 — bumped from 3.9 to 3.10 in lockstep with `requires-python`.
+python_version = "3.10"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -82,11 +88,12 @@ addopts = "-v --strict-markers"
 
 [tool.black]
 line-length = 100
-target-version = ["py39", "py310", "py311", "py312"]
+# v0.7.0 — drop 3.9 from the target list to match `requires-python`.
+target-version = ["py310", "py311", "py312"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 ignore = []
 
