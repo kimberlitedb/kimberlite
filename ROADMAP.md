@@ -12,10 +12,11 @@ Detail for each planned feature lives in GitHub issues.
 
 ## Status
 
-**Current release:** [`v0.6.2`] (2026-05-04) — notebar-driven patch:
+**Current release:** `v0.6.2` (2026-05-04) — notebar-driven patch:
 TS SDK `readAll` + buffer-default fix + channel recovery + consent
 `termsVersion`/`accepted`. Wire bumped v4 → v5 (consent-grant payload
-growth). See [`CHANGELOG.md`] for the full list.
+growth). See [`CHANGELOG.md`] for the full list. Release tag link
+added after the tag publishes.
 
 **Next release:** v0.7.0 — DX + SQL follow-ups.
 
@@ -24,7 +25,6 @@ when the third-party audits, SDK coverage, and production readiness
 criteria are all green.
 
 [`v0.6.0`]: https://github.com/kimberlitedb/kimberlite/releases/tag/v0.6.0
-[`v0.6.2`]: https://github.com/kimberlitedb/kimberlite/releases/tag/v0.6.2
 
 ---
 
