@@ -231,6 +231,54 @@ export class Client {
     }));
   }
 
+  /**
+   * Iterate every event in a stream from `fromOffset` to end-of-stream,
+   * walking offsets internally. Use this for full-stream replays —
+   * it removes the silent-truncation footgun where a bare `read()`
+   * returns only the first batch and the caller forgets to paginate.
+   *
+   * Internally pages with `batchSize` (default 1 MiB, matching `read`'s
+   * `maxBytes`). Termination is driven by the server's `nextOffset`
+   * signal, so a single event larger than `batchSize` no longer ends
+   * the iteration prematurely — the server returns `nextOffset` in
+   * `ReadEventsResponse` even when the batch is empty for that reason,
+   * and the iterator reports the truncation by throwing rather than
+   * silently stopping.
+   *
+   * @example
+   * ```ts
+   * for await (const ev of client.readAll(streamId)) {
+   *   apply(ev);
+   * }
+   * ```
+   */
+  async *readAll(
+    streamId: StreamId,
+    options: { fromOffset?: Offset; batchSize?: number | bigint } = {},
+  ): AsyncGenerator<Event, void, void> {
+    let from = options.fromOffset ?? 0n;
+    const maxBytes = BigInt(options.batchSize ?? 1024 * 1024);
+    while (true) {
+      const resp = await this.invoke((n) => n.readEvents(streamId, from, maxBytes));
+      for (let i = 0; i < resp.events.length; i++) {
+        yield { offset: from + BigInt(i), data: resp.events[i] };
+      }
+      // Server signals end-of-stream by leaving `nextOffset` null.
+      if (resp.nextOffset === null || resp.nextOffset === undefined) return;
+      // If the server returned no events but advanced `nextOffset`, a
+      // single event must exceed `batchSize`. Refuse to silently spin —
+      // a thrown error here surfaces the misconfiguration loudly.
+      if (resp.events.length === 0) {
+        throw new Error(
+          `client.readAll: stream ${streamId} contains an event larger than ` +
+            `batchSize=${maxBytes} bytes at offset ${resp.nextOffset}; ` +
+            `raise batchSize past the largest event size to make progress.`,
+        );
+      }
+      from = resp.nextOffset;
+    }
+  }
+
   /** Execute a SQL query against current state. */
   async query(sql: string, params: Value[] = []): Promise<QueryResult> {
     const resp = await this.invoke((n) => n.query(sql, params.map(valueToNativeParam)));

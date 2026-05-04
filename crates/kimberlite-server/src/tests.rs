@@ -143,7 +143,10 @@ fn test_client_config_defaults() {
 
     assert_eq!(config.read_timeout, Some(Duration::from_secs(30)));
     assert_eq!(config.write_timeout, Some(Duration::from_secs(30)));
-    assert_eq!(config.buffer_size, 64 * 1024);
+    // v0.6.2 — bumped from 64 KiB → 4 MiB so the framing cap
+    // (`buffer_size * 2`) sits comfortably above the SDK's 1 MiB
+    // `read({ maxBytes })` default.
+    assert_eq!(config.buffer_size, 4 * 1024 * 1024);
     assert!(config.auth_token.is_none());
 }
 

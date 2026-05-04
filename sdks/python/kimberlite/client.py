@@ -616,10 +616,14 @@ class Client:
             max_bytes: Maximum bytes to read (default: 1 MB)
 
         Returns:
-            List of events with offsets and data
+            List of events with offsets and data. An empty list is
+            returned when the stream is empty *or* the stream id is
+            unknown — the server doesn't distinguish the two cases.
+            Callers that need an existence check should use
+            :meth:`Client.create_stream` (which fails on duplicate)
+            or query a directory listing.
 
         Raises:
-            StreamNotFoundError: If stream does not exist
             PermissionDeniedError: If read not permitted
 
         Example:

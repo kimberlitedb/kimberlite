@@ -12,90 +12,19 @@ Detail for each planned feature lives in GitHub issues.
 
 ## Status
 
-**Current release:** [`v0.6.0`] (2026-04-21) —
-feature-complete SQL + SDK + compliance surface. See [`CHANGELOG.md`]
-for the full list.
+**Current release:** `v0.6.2` (2026-05-04) — notebar-driven patch:
+TS SDK `readAll` + buffer-default fix + channel recovery + consent
+`termsVersion`/`accepted`. Wire bumped v4 → v5 (consent-grant payload
+growth). See [`CHANGELOG.md`] for the full list. Release tag link
+added after the tag publishes.
 
-**Next release:** v0.6.2 — TS SDK pagination + buffer-default patch
-(found integrating notebar). Then v0.7.0 — DX + SQL follow-ups. No
-breaking wire changes expected in either.
+**Next release:** v0.7.0 — DX + SQL follow-ups.
 
 **Target v1.0:** when the gates below close. No fixed date — we ship
 when the third-party audits, SDK coverage, and production readiness
 criteria are all green.
 
 [`v0.6.0`]: https://github.com/kimberlitedb/kimberlite/releases/tag/v0.6.0
-
----
-
-## v0.6.2 — patch
-
-Found while integrating Kimberlite into the first downstream consumer
-(notebar). Event-sourcing replays via the TS SDK trip
-`connection error: response too large` once a stream grows past the
-~1 MiB read budget, and the partial response wedges the channel —
-the next request fails with `ResponseMismatch`. App-level workaround
-already shipped in notebar (offset-walking pagination in `repo-kit.ts`
-+ `bufferSizeBytes: 64 MiB` in `adapter.ts`); this section tracks the
-upstream fixes so the next consumer doesn't rediscover the same trap.
-
-### TS SDK (`@kimberlitedb/client`)
-
-- [ ] **Add `readAll(stream)` (or pagination iterator) to `Client`.**
-      Highest-leverage fix: makes silent-truncation bugs impossible by
-      construction. Every consumer who needs a full-stream replay
-      currently reinvents offset-walking pagination — or, worse,
-      doesn't, and silently truncates at the 1 MiB `maxBytes` default,
-      which is a much scarier failure mode than the visible error
-      notebar hit. Two acceptable shapes:
-      - `client.readAll(stream, { batchSize })` returning an
-        `AsyncIterable<Event>` that walks offsets internally until
-        end-of-stream.
-      - `client.read(...)` returns `{ events, hasMore, nextOffset }`
-        instead of a bare array, so partial reads are explicit at the
-        type level and impossible to ignore.
-      Prefer the iterator — it's harder to misuse and matches the
-      streaming nature of an immutable log.
-- [ ] **Align `bufferSizeBytes` default with `read({ maxBytes })`.**
-      The connection buffer default trips below the 1 MiB `maxBytes`
-      default because of framing overhead, so the SDK fails on its own
-      defaults for any reasonably sized event. Set the connection
-      buffer to 2–4× the read budget by default, or derive it from
-      `maxBytes` at connect time so they can't drift apart.
-- [ ] **Recover the channel after an oversized response.**
-      Once `response too large` fires, the unread bytes stay in the
-      framing buffer and the next request hits `ResponseMismatch`.
-      Connection should either drain the offending frame and continue,
-      or mark itself poisoned and force a reconnect — the framing
-      error must not leak into unrelated subsequent requests.
-- [ ] **Improve the error message.**
-      `connection error: response too large` reads like a transport
-      bug. It should hint at the actual remediation: "response exceeds
-      `bufferSizeBytes` — increase the buffer, lower `maxBytes`, or
-      use `readAll` for full-stream replay."
-
-Found by: notebar `repo-kit.ts::replayFromStream` against
-`appointment_events` / `invoice_events`.
-
-### Compliance SDK
-
-- [ ] **Add `termsVersion` + `accepted` to `consent.grant(...)`.**
-      Notebar's Phase 1 consent-capture flow needs to record which
-      terms version a subject accepted (and explicitly capture
-      `accepted: false` when a subject declines), but today
-      `grant_consent[_with_basis]` in
-      `crates/kimberlite-compliance/src/consent.rs:234-258`
-      stores neither. Add optional `terms_version: Option<String>`
-      and `accepted: bool` (default `true`) fields to `ConsentRecord`
-      and thread them through `grant_consent_with_basis`, the TS SDK
-      (`sdks/typescript/src/compliance.ts::consent.grant(...)`), and
-      the Python SDK (`sdks/python/kimberlite/compliance.py`).
-      Backwards-compatible — existing callers keep working unchanged
-      because both fields are optional with sensible defaults. No
-      new kernel command; the existing event-sourced
-      `ConsentRecord` is the audit trail. Blocks notebar Phase 1.
-
-Found by: notebar Phase 1 consent-capture flow.
 
 ---
 
@@ -112,8 +41,21 @@ feature-complete compliance surface.
       `CURRENT_DATE`, plus interval arithmetic. Requires a clock
       threading decision for VOPR-sim-vs-wall-clock (separate design
       conversation).
-- [ ] `DROP TABLE IF EXISTS` + `DELETE FROM t` (no WHERE) `rowsAffected`
-      fix. Test-infrastructure impact only.
+- [ ] `DELETE FROM t` (no WHERE) `rowsAffected` fix.
+      Test-infrastructure impact only. (`DROP TABLE IF EXISTS`
+      shipped in v0.6.2 alongside the integration-test cleanup.)
+- [ ] **Catalog staleness on DROP+CREATE same name.** Recreating a
+      table by the same name within a single connection leaves
+      stale planner state — parameter-bound INSERT into the
+      recreated table fails with `QueryParseError: SQL syntax
+      error`. v0.6.2 sidestepped it in the integration suites with
+      unique-per-test table names; the proper fix is to invalidate
+      whatever cache (planner / catalog snapshot / table-id resolver)
+      retains the dropped table's binding. Reproducer:
+      `DROP TABLE t; CREATE TABLE t (...); INSERT INTO t (...)
+      VALUES ($1, ...)` — the second INSERT's parameter binding
+      hits the stale catalog. Found by: notebar integration test
+      cleanup loop.
 - [ ] Auto-generated traceability matrix from in-source `AUDIT-YYYY-NN`
       markers (currently manual).
 - [ ] SQL planner — prevent inverted range output. `fuzz_sql_norec`

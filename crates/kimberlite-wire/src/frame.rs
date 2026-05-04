@@ -24,15 +24,25 @@ pub const MAGIC: u32 = 0x5644_4220;
 ///   correlation_id, idempotency_key) and `QueryRequest.break_glass_reason`.
 ///   v2 clients cannot talk to v3 servers — the frame validator rejects
 ///   version mismatches with `UnsupportedVersion`.
-/// - **v4** (current): threads GDPR Article 6(1) lawful basis onto consent
-///   grants. Adds `ConsentGrantRequest.basis: Option<GdprArticle>` and
+/// - **v4**: threads GDPR Article 6(1) lawful basis onto consent grants.
+///   Adds `ConsentGrantRequest.basis: Option<GdprArticle>` and
 ///   `ConsentRecord.basis: Option<GdprArticle>` so regulated industries
 ///   (healthcare, finance) can capture the paragraph letter + free-form
 ///   justification alongside a `ConsentPurpose`. Back-compat: postcard
 ///   encodes `Option<T>` as a tag byte, so v3 payloads round-trip cleanly
 ///   against v4 structs (absent fields decode as `None`) — see
 ///   `crates/kimberlite-wire/src/tests.rs::v3_v4_compat`.
-pub const PROTOCOL_VERSION: u16 = 4;
+/// - **v5** (current): adds `terms_version: Option<String>` and
+///   `accepted: bool` to `ConsentGrantRequest` and `ConsentRecord`,
+///   capturing which terms-of-service version a subject responded to and
+///   whether they accepted (`true`, default) or explicitly declined
+///   (`false`). Required for notebar's Phase 1 consent-capture flow.
+///   Back-compat: postcard is positional and errors on missing tail
+///   bytes, so a v4 payload cannot decode against the v5 schema. v0.6.1
+///   clients are rejected at the frame validator with
+///   `UnsupportedVersion(4)` — clean failure, no garbage decode. See
+///   `crates/kimberlite-wire/src/tests.rs::v5_compat`.
+pub const PROTOCOL_VERSION: u16 = 5;
 
 /// Frame header size in bytes (magic + version + length + checksum).
 pub const FRAME_HEADER_SIZE: usize = 14;

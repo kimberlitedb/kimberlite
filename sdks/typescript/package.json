@@ -1,6 +1,6 @@
 {
   "name": "@kimberlitedb/client",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "TypeScript client for Kimberlite — the compliance-first database for regulated industries.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

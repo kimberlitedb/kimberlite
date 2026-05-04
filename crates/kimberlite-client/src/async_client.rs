@@ -64,8 +64,10 @@ type PendingResponders = Arc<Mutex<HashMap<u64, oneshot::Sender<ClientResult<Res
 /// by the reader task).
 #[derive(Debug, Clone)]
 pub struct AsyncClientConfig {
-    /// Read buffer size for the reader task. 64 KiB is enough for any
-    /// single response under the current wire protocol.
+    /// Read buffer size for the reader task. The framing layer caps a
+    /// single response at `2 * buffer_size`; the v0.6.2 default
+    /// (4 MiB → 8 MiB cap) sits comfortably above the SDK's 1 MiB
+    /// `read({ maxBytes })` default.
     pub buffer_size: usize,
     /// Optional auth token forwarded in the handshake.
     pub auth_token: Option<String>,
@@ -78,7 +80,7 @@ pub struct AsyncClientConfig {
 impl Default for AsyncClientConfig {
     fn default() -> Self {
         Self {
-            buffer_size: 64 * 1024,
+            buffer_size: 4 * 1024 * 1024,
             auth_token: None,
             request_capacity: 1024,
         }

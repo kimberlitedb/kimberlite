@@ -6,6 +6,7 @@ import { Client } from '../src/client';
 import { DataClass, StreamId } from '../src/types';
 import {
   ConnectionError,
+  ResponseTooLargeError,
   StreamNotFoundError,
   PermissionDeniedError,
   AuthenticationError,
@@ -201,6 +202,177 @@ describe('auto-reconnect', () => {
     );
     expect(first.append).toHaveBeenCalledTimes(1);
     expect(client.reconnectCount).toBe(0);
+  });
+});
+
+describe('readAll (v0.6.2)', () => {
+  /**
+   * Stub the native readEvents endpoint with a scripted sequence of
+   * batches. Each batch is `{ events: Buffer[], nextOffset: bigint | null }` —
+   * `null` signals end-of-stream.
+   */
+  type Batch = { events: Buffer[]; nextOffset: bigint | null };
+
+  function makeReadStub(batches: Batch[]) {
+    const calls: Array<{ from: bigint; max: bigint }> = [];
+    let i = 0;
+    const native = {
+      tenantId: 1n,
+      lastRequestId: null,
+      readEvents: jest.fn(async (_sid: bigint, from: bigint, max: bigint) => {
+        calls.push({ from, max });
+        if (i >= batches.length) {
+          return { events: [], nextOffset: null };
+        }
+        return batches[i++];
+      }),
+    };
+    return { native, calls };
+  }
+
+  function newClient(native: unknown): Client {
+    const Ctor = Client as unknown as new (
+      n: unknown,
+      cfg: unknown,
+      autoReconnect: boolean,
+    ) => Client;
+    return new Ctor(native, { address: 'localhost:5432', tenantId: 1n }, false);
+  }
+
+  it('yields nothing for an empty stream', async () => {
+    const { native } = makeReadStub([{ events: [], nextOffset: null }]);
+    const client = newClient(native);
+
+    const out: Array<{ offset: bigint; size: number }> = [];
+    for await (const ev of client.readAll(StreamId.from(1n))) {
+      out.push({ offset: ev.offset, size: ev.data.length });
+    }
+    expect(out).toEqual([]);
+    expect(native.readEvents).toHaveBeenCalledTimes(1);
+  });
+
+  it('yields a single batch when the stream fits in one read', async () => {
+    const events = [Buffer.from('a'), Buffer.from('bb'), Buffer.from('ccc')];
+    const { native } = makeReadStub([{ events, nextOffset: null }]);
+    const client = newClient(native);
+
+    const out: Array<{ offset: bigint; data: string }> = [];
+    for await (const ev of client.readAll(StreamId.from(1n))) {
+      out.push({ offset: ev.offset, data: ev.data.toString() });
+    }
+    expect(out).toEqual([
+      { offset: 0n, data: 'a' },
+      { offset: 1n, data: 'bb' },
+      { offset: 2n, data: 'ccc' },
+    ]);
+    expect(native.readEvents).toHaveBeenCalledTimes(1);
+  });
+
+  it('paginates across multiple batches and preserves offset continuity', async () => {
+    const { native, calls } = makeReadStub([
+      { events: [Buffer.from('e0'), Buffer.from('e1')], nextOffset: 2n },
+      { events: [Buffer.from('e2')], nextOffset: 3n },
+      { events: [Buffer.from('e3'), Buffer.from('e4')], nextOffset: null },
+    ]);
+    const client = newClient(native);
+
+    const out: bigint[] = [];
+    for await (const ev of client.readAll(StreamId.from(1n))) {
+      out.push(ev.offset);
+    }
+    expect(out).toEqual([0n, 1n, 2n, 3n, 4n]);
+    // Three native calls: from=0, from=2, from=3.
+    expect(calls.map((c) => c.from)).toEqual([0n, 2n, 3n]);
+  });
+
+  it('honours fromOffset when provided', async () => {
+    const { native, calls } = makeReadStub([
+      { events: [Buffer.from('x')], nextOffset: null },
+    ]);
+    const client = newClient(native);
+
+    const out: bigint[] = [];
+    for await (const ev of client.readAll(StreamId.from(1n), { fromOffset: 100n })) {
+      out.push(ev.offset);
+    }
+    expect(out).toEqual([100n]);
+    expect(calls[0].from).toBe(100n);
+  });
+
+  it('passes batchSize to the native maxBytes argument', async () => {
+    const { native, calls } = makeReadStub([
+      { events: [Buffer.from('x')], nextOffset: null },
+    ]);
+    const client = newClient(native);
+
+    for await (const _ of client.readAll(StreamId.from(1n), { batchSize: 4096 })) {
+      // exhaust
+    }
+    expect(calls[0].max).toBe(4096n);
+  });
+
+  it('throws when the server reports a non-empty nextOffset but returns zero events', async () => {
+    // Simulates a single event larger than batchSize: server says
+    // "more data ahead at offset N" but the empty batch means we
+    // can't make progress without raising the budget.
+    const { native } = makeReadStub([
+      { events: [], nextOffset: 5n },
+    ]);
+    const client = newClient(native);
+
+    await expect(async () => {
+      for await (const _ of client.readAll(StreamId.from(1n), { batchSize: 1 })) {
+        // unreachable
+      }
+    }).rejects.toThrow(/larger than batchSize/);
+  });
+
+  it('terminates cleanly when the consumer breaks out early', async () => {
+    const { native } = makeReadStub([
+      { events: [Buffer.from('a'), Buffer.from('b')], nextOffset: 2n },
+      { events: [Buffer.from('c')], nextOffset: null },
+    ]);
+    const client = newClient(native);
+
+    const out: bigint[] = [];
+    for await (const ev of client.readAll(StreamId.from(1n))) {
+      out.push(ev.offset);
+      if (out.length === 1) break;
+    }
+    expect(out).toEqual([0n]);
+    // Generator returned after the first yield — only the first
+    // native call should have been issued.
+    expect(native.readEvents).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ResponseTooLargeError dispatch (v0.6.2)', () => {
+  it('wrapNativeError routes the v0.6.2 response-too-large prefix to ResponseTooLargeError', () => {
+    const { wrapNativeError } = require('../src/errors');
+    const raw = new Error(
+      '[KMB_ERR_Connection] response too large: 9000000 bytes received exceeds framing cap of 8388608 bytes (= 2 * bufferSizeBytes). Increase `bufferSizeBytes`, lower `maxBytes`, or use `client.readAll()` for full-stream replay.',
+    );
+    const wrapped = wrapNativeError(raw);
+    expect(wrapped).toBeInstanceOf(ResponseTooLargeError);
+    expect(wrapped).toBeInstanceOf(ConnectionError);
+    expect((wrapped as Error).message).toMatch(/response too large/);
+    expect((wrapped as Error).message).toMatch(/bufferSizeBytes/);
+    expect((wrapped as Error).message).toMatch(/readAll/);
+  });
+
+  it('legacy (no KMB_ERR_ prefix) message also dispatches to ResponseTooLargeError', () => {
+    const { wrapNativeError } = require('../src/errors');
+    const raw = new Error('connection error: response too large: 5MB exceeds 2MB');
+    const wrapped = wrapNativeError(raw);
+    expect(wrapped).toBeInstanceOf(ResponseTooLargeError);
+  });
+
+  it('plain ConnectionError still routes to ConnectionError', () => {
+    const { wrapNativeError } = require('../src/errors');
+    const raw = new Error('[KMB_ERR_Connection] Broken pipe (os error 32)');
+    const wrapped = wrapNativeError(raw);
+    expect(wrapped).toBeInstanceOf(ConnectionError);
+    expect(wrapped).not.toBeInstanceOf(ResponseTooLargeError);
   });
 });
 

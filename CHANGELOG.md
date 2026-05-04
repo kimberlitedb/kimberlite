@@ -20,6 +20,127 @@ for the planned scope._
 
 ---
 
+## [0.6.2] — 2026-05-04
+
+**Theme:** notebar-driven patch. Closes the four TS-SDK trips and the
+consent-grant gap that the first downstream consumer (notebar) reported
+during integration. Wire bump v4 → v5 (consent-grant payload growth).
+
+### Breaking changes
+
+- **Wire protocol v4 → v5.** `ConsentGrantRequest` and `ConsentRecord`
+  gained two tail fields (`terms_version: Option<String>`, `accepted:
+  bool`). Postcard is positional and errors on missing tail bytes, so
+  v0.6.1 ↔ v0.6.2 cross-version connections are rejected at the frame
+  validator with `UnsupportedVersion(...)`. Source-level consumers
+  (Rust callers of `ConsentTracker`, TS `consent.grant`, Python
+  `consent.grant`) keep their existing call shapes — back-compat is
+  preserved at the API surface, only the on-the-wire format moved.
+
+### Added — TS SDK pagination + buffer hygiene
+
+- **`Client.readAll(streamId, { fromOffset, batchSize })`.** Async
+  generator that walks offsets internally until end-of-stream,
+  driven by the server's `nextOffset` signal. Removes the
+  silent-truncation footgun where bare `read()` returned only the
+  first batch and the caller forgot to paginate. Throws loudly if a
+  single event exceeds `batchSize` (instead of spinning).
+- **`bufferSizeBytes` default 64 KiB → 4 MiB.** Pre-v0.6.2 the SDK
+  tripped its own framing limit on its own defaults: the 1 MiB
+  `read({ maxBytes })` default exceeded the 128 KiB framing cap
+  (`buffer_size * 2`). New default gives an 8 MiB cap — comfortably
+  above the read budget, with regression-pinned defaults across all
+  4 sites (sync `Client`, `AsyncClient`, napi sync + pool variants).
+- **`ResponseTooLargeError`** subclass of `ConnectionError`. The
+  oversized-response error now carries observed/limit byte counts
+  and points at the three remediations (`bufferSizeBytes` ↑,
+  `maxBytes` ↓, `readAll`). Routed via `wrapNativeError` for both
+  the `[KMB_ERR_]` prefix and legacy paths.
+
+### Added — channel recovery
+
+- **Poison-and-reconnect on oversized responses.** When the framing
+  cap trips, the Rust client clears `read_buf` + `push_buffer` and
+  marks itself `poisoned`. Subsequent `send_request` calls return a
+  sticky `Connection("connection poisoned … reconnect required")`
+  error that drives `invoke_with_reconnect` (Rust) or
+  `autoReconnect` (TS). `reconnect()` clears the flag once the new
+  stream + handshake succeed. Closes the `ResponseMismatch`
+  follow-on that fired on the next request after the first oversize.
+
+### Added — consent-grant terms-acceptance fields
+
+- **`terms_version: Option<String>` + `accepted: bool` (default
+  `true`)** on `ConsentRecord` and `ConsentGrantRequest`. Captures
+  which terms-of-service version a subject responded to and whether
+  they accepted (default) or explicitly declined (`false`). A
+  decline is itself a compliance event — the audit trail captures
+  the decline against `terms_version`.
+- **`GrantOptions` struct** + `ConsentTracker::grant_consent_with_options`,
+  `TenantHandle::grant_consent_with_options`,
+  `Client::consent_grant_with_terms`. Pre-v0.6.2 entry points
+  (`grant_consent`, `grant_consent_with_scope`,
+  `grant_consent_with_basis`) keep their signatures and delegate —
+  zero source-level breakage.
+- **TS SDK overload:** `consent.grant(s, p, options)` accepts
+  `{ basis?, termsVersion?, accepted? }` as the 3rd argument.
+  Pre-v0.6.2 callers passing a bare `ConsentBasis` keep working via
+  a runtime type-guard on `'article' in arg3`.
+- **Python SDK kwargs:** `consent.grant(subject, purpose, basis, *,
+  terms_version=None, accepted=None)`. Default `accepted=True`.
+- **Audit event:** `ComplianceAuditAction::ConsentGranted` extended
+  with the same two fields. Variant name retained — `accepted: false`
+  is still a "consent recorded" event.
+- **C ABI:** `kmb_compliance_consent_grant` adds an `options_json`
+  parameter (UTF-8 JSON envelope). Existing C consumers must update
+  their bindings; the call shape is intentionally extension-friendly
+  for v0.7+ option growth.
+
+### Added — `DROP TABLE IF EXISTS`
+
+- **Idempotent DDL.** `DROP TABLE IF EXISTS <name>` now returns
+  `Ok(rows_affected = 0)` when the table doesn't exist, instead of
+  `TableNotFound`. Cleared a v0.7.0 ROADMAP item along the way.
+  Test fixtures stop needing try/catch wrappers around setup
+  cleanup.
+
+### Fixed — integration-test infrastructure
+
+- **Per-invocation unique table / stream names** in TS and Python
+  integration suites. Hardcoded names (`test_users`, `append_test`,
+  …) collided with leftover state from prior runs, surfacing as
+  duplicate-PK errors and `Internal server error`. The new fixture
+  yields `(client, table_name)` with a fresh `uuid` suffix per
+  test invocation.
+- **Python `Client.execute` return-type assertions.**
+  `client.execute(...)` returns `ExecuteResult(rows_affected,
+  log_offset)` — a dataclass, not a bare int. Tests that compared
+  the return value against `int` (e.g. `result == 0`) crashed with
+  `TypeError`; now compare `result.rows_affected`.
+- **Python `Client.read` docstring + `test_stream_not_found`.**
+  Reading a non-existent stream returns `[]` — the server doesn't
+  distinguish unknown-stream from empty-stream. The docstring's
+  "Raises StreamNotFoundError" was inaccurate; both contract and
+  test now match observed behaviour.
+
+### Found by
+
+`notebar` Phase 1 consent-capture flow + `repo-kit.ts::replayFromStream`
+against `appointment_events` / `invoice_events`. The first downstream
+consumer should not be the project's QA pass for trivially fixable
+defaults; v0.6.2 closes both gaps before the next integration.
+
+### Known issue (deferred to v0.7.0)
+
+- **Catalog staleness on `DROP TABLE` + `CREATE TABLE` (same name).**
+  Within a single connection, recreating a table by the same name
+  leaves stale planner state that causes parameter-bound INSERT to
+  fail with `QueryParseError`. Workaround: use unique table names
+  (the v0.6.2 integration-test fixtures already do this). Tracked
+  in `ROADMAP.md` under v0.7.0.
+
+---
+
 ## [0.6.1] — 2026-04-24
 
 **Theme:** clean-slate release. Turns every red CI badge green

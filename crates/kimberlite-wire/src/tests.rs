@@ -230,7 +230,7 @@ fn protocol_version_is_four() {
     // must fail the handshake cleanly; v3 clients remain bytewise
     // wire-compatible with v4 servers for payloads that don't
     // populate `basis` — see `v3_v4_compat_*` tests below.
-    assert_eq!(PROTOCOL_VERSION, 4);
+    assert_eq!(PROTOCOL_VERSION, 5);
 }
 
 #[test]
@@ -820,7 +820,7 @@ fn server_info_roundtrip() {
         RequestId::new(1),
         ResponsePayload::ServerInfo(ServerInfoResponse {
             build_version: "0.5.0".into(),
-            protocol_version: 4,
+            protocol_version: 5,
             capabilities: vec![
                 "query".into(),
                 "append".into(),
@@ -838,7 +838,7 @@ fn server_info_roundtrip() {
         Message::Response(r) => match r.payload {
             ResponsePayload::ServerInfo(info) => {
                 assert_eq!(info.build_version, "0.5.0");
-                assert_eq!(info.protocol_version, 4);
+                assert_eq!(info.protocol_version, 5);
                 assert_eq!(info.cluster_mode, ClusterMode::Standalone);
                 assert_eq!(info.tenant_count, 3);
                 assert!(info.capabilities.iter().any(|c| c == "admin.v1"));
@@ -915,6 +915,8 @@ mod v3_v4_compat {
                 article: GdprArticle::Consent,
                 justification: Some("opt-in at signup".into()),
             }),
+            terms_version: None,
+            accepted: true,
         };
         let bytes = postcard::to_allocvec(&req).unwrap();
         let decoded: ConsentGrantRequest = postcard::from_bytes(&bytes).unwrap();
@@ -939,6 +941,8 @@ mod v3_v4_compat {
                 article: GdprArticle::LegitimateInterests,
                 justification: None,
             }),
+            terms_version: None,
+            accepted: true,
         };
         let bytes = postcard::to_allocvec(&rec).unwrap();
         let decoded: ConsentRecord = postcard::from_bytes(&bytes).unwrap();
@@ -956,24 +960,31 @@ mod v3_v4_compat {
     // terminating zero byte.
 
     #[test]
-    fn v3_v3_baseline_equals_v4_with_basis_none_plus_tag_byte() {
+    fn v3_baseline_equals_v5_with_optional_tail_fields_at_defaults() {
         let v3 = V3ConsentGrantRequest {
             subject_id: "alice".into(),
             purpose: ConsentPurpose::Marketing,
             scope: Some(ConsentScope::AllData),
         };
-        let v4 = ConsentGrantRequest {
+        let v5 = ConsentGrantRequest {
             subject_id: "alice".into(),
             purpose: ConsentPurpose::Marketing,
             scope: Some(ConsentScope::AllData),
             basis: None,
+            terms_version: None,
+            accepted: true,
         };
         let v3_bytes = postcard::to_allocvec(&v3).unwrap();
-        let v4_bytes = postcard::to_allocvec(&v4).unwrap();
-        // v4 with basis=None = v3 bytes + single 0x00 tag byte.
-        assert_eq!(v4_bytes.len(), v3_bytes.len() + 1);
-        assert_eq!(&v4_bytes[..v3_bytes.len()], &v3_bytes[..]);
-        assert_eq!(v4_bytes[v3_bytes.len()], 0x00);
+        let v5_bytes = postcard::to_allocvec(&v5).unwrap();
+        // v5 with all-defaults tail = v3 bytes + 3 bytes:
+        //   - 0x00 None-tag for `basis: None`
+        //   - 0x00 None-tag for `terms_version: None`
+        //   - 0x01 bool for `accepted: true`
+        assert_eq!(v5_bytes.len(), v3_bytes.len() + 3);
+        assert_eq!(&v5_bytes[..v3_bytes.len()], &v3_bytes[..]);
+        assert_eq!(v5_bytes[v3_bytes.len()], 0x00, "basis None tag");
+        assert_eq!(v5_bytes[v3_bytes.len() + 1], 0x00, "terms_version None tag");
+        assert_eq!(v5_bytes[v3_bytes.len() + 2], 0x01, "accepted=true");
     }
 
     // ----- Cell 3: v3 client → v4 server -----------------------------
@@ -1062,23 +1073,28 @@ mod v3_v4_compat {
     // why the handshake MUST reject v4-framed payloads at a v3 server.
 
     #[test]
-    fn v4_client_basis_none_decodes_cleanly_into_v3_shape() {
-        let v4 = ConsentGrantRequest {
+    fn v5_payload_with_default_tail_decodes_cleanly_into_v3_shape_with_three_residual_bytes() {
+        let v5 = ConsentGrantRequest {
             subject_id: "alice".into(),
             purpose: ConsentPurpose::Marketing,
             scope: Some(ConsentScope::AllData),
             basis: None,
+            terms_version: None,
+            accepted: true,
         };
-        let v4_bytes = postcard::to_allocvec(&v4).unwrap();
+        let v5_bytes = postcard::to_allocvec(&v5).unwrap();
 
-        // Simulate v3 server decoding: strip the trailing tag byte and
-        // deserialize into the v3-shape struct (which lacks `basis`).
-        // Using `take_from_bytes` we verify exactly one extra byte
-        // remains — the `None` tag emitted by the v4 serializer.
-        let (decoded_v3, rest): (V3Readable, _) = postcard::take_from_bytes(&v4_bytes).unwrap();
+        // A v3 server (only 3 fields in its schema) would consume the
+        // first 3 fields and leave the v0.6.2 tail in the buffer:
+        //   1 byte basis-None tag + 1 byte terms_version-None tag +
+        //   1 byte accepted-true bool = 3 trailing bytes.
+        // The frame validator at the server is what actually rejects
+        // the wire-version mismatch — this test pins the tail-shape
+        // for documentation/diagnostic purposes.
+        let (decoded_v3, rest): (V3Readable, _) = postcard::take_from_bytes(&v5_bytes).unwrap();
         assert_eq!(decoded_v3.subject_id, "alice");
-        assert_eq!(rest.len(), 1);
-        assert_eq!(rest[0], 0x00, "trailing byte must be the basis=None tag");
+        assert_eq!(rest.len(), 3);
+        assert_eq!(rest, &[0x00, 0x00, 0x01]);
     }
 
     #[test]
@@ -1091,6 +1107,8 @@ mod v3_v4_compat {
                 article: GdprArticle::Consent,
                 justification: Some("clinical research opt-in".into()),
             }),
+            terms_version: None,
+            accepted: true,
         };
         let v4_bytes = postcard::to_allocvec(&v4).unwrap();
 
@@ -1104,6 +1122,68 @@ mod v3_v4_compat {
             "basis=Some must leave more than just the tag byte: {}",
             rest.len()
         );
+    }
+
+    // ----- Cell 5: v0.6.2 — terms_version + accepted round-trip ------
+    //
+    // These pin the v5-only behaviour: capturing which terms-of-service
+    // version a subject responded to, and whether they accepted or
+    // declined, must round-trip cleanly against the v5 schema.
+
+    #[test]
+    fn v5_v5_terms_version_and_accepted_roundtrip_through_grant_request() {
+        let req = ConsentGrantRequest {
+            subject_id: "carol".into(),
+            purpose: ConsentPurpose::Research,
+            scope: Some(ConsentScope::AllData),
+            basis: None,
+            terms_version: Some("2026-04-tos".into()),
+            accepted: true,
+        };
+        let bytes = postcard::to_allocvec(&req).unwrap();
+        let decoded: ConsentGrantRequest = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(decoded.terms_version.as_deref(), Some("2026-04-tos"));
+        assert!(decoded.accepted);
+    }
+
+    #[test]
+    fn v5_explicit_decline_roundtrips_with_accepted_false() {
+        // The whole point of `accepted: false` — capturing that the
+        // subject was asked and said no, against a specific terms
+        // version. Still a compliance event (`ConsentRecorded`-shaped).
+        let req = ConsentGrantRequest {
+            subject_id: "dave".into(),
+            purpose: ConsentPurpose::Marketing,
+            scope: None,
+            basis: None,
+            terms_version: Some("v3".into()),
+            accepted: false,
+        };
+        let bytes = postcard::to_allocvec(&req).unwrap();
+        let decoded: ConsentGrantRequest = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(decoded.terms_version.as_deref(), Some("v3"));
+        assert!(!decoded.accepted);
+    }
+
+    #[test]
+    fn v5_v5_record_roundtrips_terms_and_accepted() {
+        let rec = ConsentRecord {
+            consent_id: "00000000-0000-0000-0000-000000000002".into(),
+            subject_id: "erin".into(),
+            purpose: ConsentPurpose::Analytics,
+            scope: ConsentScope::AllData,
+            granted_at_nanos: 1_700_000_000_000_000_000,
+            withdrawn_at_nanos: None,
+            expires_at_nanos: None,
+            notes: None,
+            basis: None,
+            terms_version: Some("v7".into()),
+            accepted: false,
+        };
+        let bytes = postcard::to_allocvec(&rec).unwrap();
+        let decoded: ConsentRecord = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(decoded.terms_version.as_deref(), Some("v7"));
+        assert!(!decoded.accepted);
     }
 
     /// Read-only v3-shape mirror used by the compat tests. Separate

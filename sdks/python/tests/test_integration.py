@@ -4,8 +4,18 @@ These tests require a running kmb-server instance.
 Run with: pytest tests/test_integration.py
 """
 
+import uuid
 import pytest
 from kimberlite import Client, DataClass, StreamNotFoundError
+
+
+def _unique(prefix: str) -> str:
+    """v0.6.2: stream names that don't collide with leftover state from
+    prior test runs. Stream creation is one-shot — there's no
+    `CREATE STREAM IF NOT EXISTS` — so a duplicate name surfaces as
+    `InternalError: Internal server error`. A uuid suffix sidesteps
+    the collision deterministically."""
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
 @pytest.fixture
@@ -25,14 +35,14 @@ def client():
 
 def test_create_stream(client):
     """Test creating a stream."""
-    stream_id = client.create_stream("test_stream", DataClass.NON_PHI)
+    stream_id = client.create_stream(_unique("test_stream"), DataClass.NON_PHI)
     assert stream_id > 0
 
 
 def test_append_and_read(client):
     """Test appending and reading events."""
     # Create stream
-    stream_id = client.create_stream("append_test", DataClass.NON_PHI)
+    stream_id = client.create_stream(_unique("append_test"), DataClass.NON_PHI)
 
     # Append events
     events = [
@@ -58,7 +68,7 @@ def test_context_manager(client):
         tenant_id=1,
         auth_token="test-token",
     ) as ctx_client:
-        stream_id = ctx_client.create_stream("ctx_test", DataClass.NON_PHI)
+        stream_id = ctx_client.create_stream(_unique("ctx_test"), DataClass.NON_PHI)
         assert stream_id > 0
 
     # After context exit, client should be closed
@@ -66,14 +76,20 @@ def test_context_manager(client):
 
 
 def test_stream_not_found(client):
-    """Test error handling for non-existent stream."""
-    with pytest.raises(StreamNotFoundError):
-        client.read(9999999, from_offset=0, max_bytes=1024)
+    """Reading a non-existent stream returns an empty event list.
+
+    The server doesn't distinguish "stream exists but has no events
+    from `from_offset`" from "stream doesn't exist" — both surface as
+    an empty result. The TS SDK has the same shape. v0.6.2 nails the
+    contract down: empty list, never an exception.
+    """
+    events = client.read(9999999, from_offset=0, max_bytes=1024)
+    assert events == []
 
 
 def test_empty_append_fails(client):
     """Test that appending empty event list fails."""
-    stream_id = client.create_stream("empty_test", DataClass.NON_PHI)
+    stream_id = client.create_stream(_unique("empty_test"), DataClass.NON_PHI)
 
     with pytest.raises(ValueError, match="Cannot append empty event list"):
         client.append(stream_id, [])

@@ -126,7 +126,15 @@ export interface ClientConfig {
   readTimeoutMs?: number;
   /** Write timeout in milliseconds (default: 30_000). */
   writeTimeoutMs?: number;
-  /** Internal read buffer size in bytes (default: 64 KiB). */
+  /**
+   * Internal read buffer size in bytes (default: 4 MiB).
+   *
+   * The framing layer caps a single response at `bufferSizeBytes * 2`;
+   * the default leaves 8 MiB of headroom — comfortably above the 1 MiB
+   * `read({ maxBytes })` default and big enough for moderately
+   * above-default reads. If you raise `maxBytes` past ~4 MiB, raise
+   * this proportionally (rule of thumb: `bufferSizeBytes ≥ 2 * maxBytes`).
+   */
   bufferSizeBytes?: number;
   /**
    * Reconnect automatically on connection-level failures (default: `true`).

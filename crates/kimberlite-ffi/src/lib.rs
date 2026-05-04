@@ -1723,12 +1723,19 @@ fn portability_export_to_json(p: &kimberlite_wire::PortabilityExportInfo) -> ser
 /// to thread the GDPR Article 6(1) lawful basis onto the grant. Unknown
 /// articles return `KmbErrInternal`; callers should pass `NULL` to preserve
 /// legacy behaviour.
+///
+/// `options_json` is the v0.6.2 / wire v5 extension envelope, accepting
+/// `NULL` (legacy behaviour) or a UTF-8 JSON object of shape
+/// `{"terms_version":"v3","accepted":false}`. Both fields optional;
+/// missing `accepted` defaults to `true`. v0.6.1 callers pass `NULL`
+/// and the server records `terms_version = None`, `accepted = true`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmb_compliance_consent_grant(
     client: *mut KmbClient,
     subject_id: *const c_char,
     purpose: *const c_char,
     basis_json: *const c_char,
+    options_json: *const c_char,
     result_out: *mut KmbAdminJson,
 ) -> KmbError {
     unsafe {
@@ -1759,11 +1766,27 @@ pub unsafe extern "C" fn kmb_compliance_consent_grant(
                 None => return KmbError::KmbErrInternal,
             }
         };
+        let (terms_version, accepted) = if options_json.is_null() {
+            (None, true)
+        } else {
+            let raw = match CStr::from_ptr(options_json).to_str() {
+                Ok(s) => s,
+                Err(_) => return KmbError::KmbErrInvalidUtf8,
+            };
+            match parse_consent_options(raw) {
+                Some(opts) => opts,
+                None => return KmbError::KmbErrInternal,
+            }
+        };
         let wrapper = &mut *(client as *mut ClientWrapper);
-        match wrapper
-            .client
-            .consent_grant(subj, wire_purpose, None, wire_basis)
-        {
+        match wrapper.client.consent_grant_with_terms(
+            subj,
+            wire_purpose,
+            None,
+            wire_basis,
+            terms_version,
+            accepted,
+        ) {
             Ok(r) => {
                 let json = serde_json::json!({
                     "consent_id": r.consent_id,
@@ -1780,6 +1803,26 @@ pub unsafe extern "C" fn kmb_compliance_consent_grant(
             Err(e) => map_error(e),
         }
     }
+}
+
+/// Parse the v0.6.2 grant-options JSON envelope.
+///
+/// Returns `Some((terms_version, accepted))` with the defaults
+/// applied (`accepted = true` when missing / null). Returns `None`
+/// only on JSON syntax errors — unknown fields are silently ignored
+/// to keep forward-compat for newer envelope shapes.
+fn parse_consent_options(raw: &str) -> Option<(Option<String>, bool)> {
+    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let obj = value.as_object()?;
+    let terms_version = obj
+        .get("terms_version")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let accepted = obj
+        .get("accepted")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    Some((terms_version, accepted))
 }
 
 /// Withdraw consent by ID.

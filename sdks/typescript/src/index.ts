@@ -42,6 +42,7 @@ export {
   ConsentScope,
   ConsentRecord,
   ConsentGrantResult,
+  ConsentGrantOptions,
   ConsentBasis,
   GdprArticle,
   ErasureExemptionBasis,
@@ -114,6 +115,7 @@ export {
 export {
   KimberliteError,
   ConnectionError,
+  ResponseTooLargeError,
   StreamNotFoundError,
   PermissionDeniedError,
   AuthenticationError,
