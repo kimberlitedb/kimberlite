@@ -147,10 +147,28 @@ jobs:
           # boundary. ROADMAP tracks the kernel-command perf follow-up
           # — pruning the corpus or fixing the slow apply-path is the
           # real fix; this just stops the false-positive crash report.
-          cargo +nightly fuzz run ${{ matrix.target }} \
-            -- -max_total_time=${MAX_TOTAL_TIME} \
-               -timeout=3600 \
-               -print_final_stats=1
+          #
+          # Shell `timeout` wrapper (5100s = 85min, leaving 5min for
+          # post-step crash artifact upload before the 90min
+          # job-level timeout-minutes fires). When the per-input
+          # alarm or the wall-clock budget is exceeded, `timeout`
+          # returns exit 124 — a normal step FAILURE that
+          # job-level continue-on-error tolerates. Without this
+          # wrapper, the 90min job-level timeout-minutes cancels
+          # the job (a CANCELLED conclusion that continue-on-error
+          # does NOT tolerate per GitHub Actions semantics).
+          # AUDIT-2026-05 H-7.
+          timeout --preserve-status --kill-after=10s 5100s \
+            cargo +nightly fuzz run ${{ matrix.target }} \
+              -- -max_total_time=${MAX_TOTAL_TIME} \
+                 -timeout=3600 \
+                 -print_final_stats=1
+          fuzz_exit=$?
+          if [ "$fuzz_exit" -eq 124 ] || [ "$fuzz_exit" -eq 137 ]; then
+              echo "::warning::${{ matrix.target }} hit the 5100s shell-timeout wall-clock; wrapping as a step failure for the job-level continue-on-error gate to tolerate (only fuzz_kernel_command and fuzz_abac_evaluator are gated; everything else still fails the workflow)."
+              exit 1
+          fi
+          exit "$fuzz_exit"
 
       - name: Minimize and collect crash artifacts
         if: failure() && steps.run_fuzz.outcome == 'failure'
