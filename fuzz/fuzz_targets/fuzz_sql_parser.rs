@@ -61,7 +61,10 @@ fn validate_ast_structure(stmt: &ParsedStatement) {
         }
         // Other variants have simpler structure; coverage from round-tripping
         // is sufficient.
-        ParsedStatement::DropTable(_)
+        // v0.6.2 changed `DropTable` from a tuple variant to a
+        // struct variant `{ name, if_exists }` to support DROP
+        // TABLE IF EXISTS. Match accordingly.
+        ParsedStatement::DropTable { .. }
         | ParsedStatement::AlterTable(_)
         | ParsedStatement::CreateIndex(_)
         | ParsedStatement::Delete(_)
