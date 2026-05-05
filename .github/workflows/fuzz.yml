@@ -37,6 +37,18 @@ jobs:
     # the 60-min cap and getting cancelled. ROADMAP tracks the
     # underlying corpus/perf cleanup.
     timeout-minutes: 90
+    # AUDIT-2026-05 H-7 — known-slow-input tolerance.
+    # fuzz_kernel_command and fuzz_abac_evaluator have a documented
+    # O(n^k) blowup in the apply-path / evaluator that lets libFuzzer
+    # mutate into an input which exceeds the 90-minute job timeout.
+    # Tracked under ROADMAP "Investigate fuzz-target slow inputs".
+    # Until that perf fix lands, mark these two targets
+    # continue-on-error at the JOB level (not step level — step-level
+    # continue-on-error doesn't catch GitHub's job-timeout
+    # cancellation). Crash artifacts still upload via the
+    # "Minimize and collect crash artifacts" step (gated on
+    # `if: failure()`, which fires before the job is cancelled).
+    continue-on-error: ${{ contains(fromJSON('["fuzz_kernel_command", "fuzz_abac_evaluator"]'), matrix.target) }}
 
     strategy:
       # One failure should not mask crashes in siblings — the point of fuzzing
@@ -109,20 +121,11 @@ jobs:
 
       - name: Run fuzzer (${{ matrix.target }})
         id: run_fuzz
-        # AUDIT-2026-05 H-7 — fuzz_kernel_command and
-        # fuzz_abac_evaluator have a known O(n^k) blowup in the
-        # apply-path / evaluator that lets libFuzzer mutate into a
-        # single input which exceeds the 3600s per-input alarm,
-        # surfacing as a workflow-failing timeout rather than a
-        # real bug. Tracked under ROADMAP "Investigate fuzz-target
-        # slow inputs". Until that fix lands, these two targets
-        # can intermittently time out without indicating a real
-        # regression — mark them continue-on-error so the nightly
-        # stays green for the other 18 targets, while crash
-        # artifacts still upload for triage. Real crashes (not
-        # timeouts) should still be investigated via the artifact
-        # upload below.
-        continue-on-error: ${{ contains(fromJSON('["fuzz_kernel_command", "fuzz_abac_evaluator"]'), matrix.target) }}
+        # Tolerance for slow-input timeouts on
+        # fuzz_kernel_command / fuzz_abac_evaluator is set at the
+        # JOB level (above) — step-level continue-on-error doesn't
+        # catch the GitHub job-timeout cancellation those targets
+        # hit on slow mutations.
         env:
           MAX_TOTAL_TIME: ${{ inputs.max_total_time || '900' }}
         run: |
