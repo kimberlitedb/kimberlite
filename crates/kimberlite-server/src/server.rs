@@ -1082,6 +1082,7 @@ impl Server {
             // breach_detector on the live kimberlite instance and emit a
             // compliance-audit entry per mutation.
             RequestPayload::AuditQuery(req) => Some(self.handle_audit_query(request, req.clone())),
+            RequestPayload::VerifyAuditChain(_) => Some(self.handle_verify_audit_chain(request)),
             RequestPayload::ExportSubject(req) => {
                 Some(self.handle_export_subject(request, req.clone()))
             }
@@ -1567,6 +1568,38 @@ impl Server {
                 events: wire_events,
             }),
         )
+    }
+
+    fn handle_verify_audit_chain(&mut self, request: &Request) -> Response {
+        let tenant = self.handler.kimberlite().tenant(request.tenant_id);
+        let payload = match tenant.audit_log_verify_chain() {
+            Ok((event_count, head)) => kimberlite_wire::VerifyAuditChainResponse {
+                ok: true,
+                event_count,
+                chain_head_hex: hex_encode(&head),
+                mismatch_at_index: None,
+                error_message: None,
+            },
+            Err(e) => {
+                use kimberlite_compliance::audit::AuditChainError;
+                let mismatch_at = match &e {
+                    AuditChainError::PrevHashMismatch { index }
+                    | AuditChainError::EventHashMismatch { index } => Some(*index as u64),
+                    AuditChainError::FirstEventPrevHashNonZero => Some(0),
+                    AuditChainError::ChainHeadMismatch
+                    | AuditChainError::CanonicalizationFailed => None,
+                };
+                let head = tenant.audit_log_chain_head_hex();
+                kimberlite_wire::VerifyAuditChainResponse {
+                    ok: false,
+                    event_count: 0,
+                    chain_head_hex: head,
+                    mismatch_at_index: mismatch_at,
+                    error_message: Some(e.to_string()),
+                }
+            }
+        };
+        Response::new(request.id, ResponsePayload::VerifyAuditChain(payload))
     }
 
     fn handle_export_subject(

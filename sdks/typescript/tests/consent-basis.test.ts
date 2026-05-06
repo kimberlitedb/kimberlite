@@ -86,6 +86,7 @@ function makeStubNative(
     apiKeyRotate: notImpl,
     serverInfo: notImpl,
     auditQuery: notImpl,
+    verifyAuditChain: notImpl,
     maskingPolicyCreate: notImpl,
     maskingPolicyDrop: notImpl,
     maskingPolicyAttach: notImpl,

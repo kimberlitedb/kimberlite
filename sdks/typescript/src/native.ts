@@ -181,6 +181,8 @@ export interface NativeKimberliteClient {
   // v0.6.0 Tier 2 #9 — SDK-safe audit-log query. PHI-free by
   // construction (see JsAuditEntry).
   auditQuery(filter: JsAuditQueryFilter): Promise<JsAuditEntry[]>;
+  // v0.8.0 — chain-verification report.
+  verifyAuditChain(): Promise<JsVerifyAuditChainReport>;
 
   // Phase 4 admin + schema + server info
   listTables(): Promise<JsTableInfo[]>;
@@ -436,6 +438,14 @@ export interface JsAuditQueryFilter {
   timeToNanos?: bigint | null;
   actor?: string | null;
   limit?: number | null;
+}
+
+export interface JsVerifyAuditChainReport {
+  ok: boolean;
+  eventCount: bigint;
+  chainHeadHex: string;
+  mismatchAtIndex: bigint | null;
+  errorMessage: string | null;
 }
 
 export interface JsPoolConfig {
