@@ -1924,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -1949,7 +1949,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-abac"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "kimberlite-types",
@@ -1961,7 +1961,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-compliance"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1983,7 +1983,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-crypto"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "aes-gcm",
  "blake3",
@@ -1999,7 +1999,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-directory"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "kimberlite-types",
  "serde",
@@ -2035,7 +2035,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-kernel"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "blake3",
  "bytes",
@@ -2047,7 +2047,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-oracle"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "bytes",
  "duckdb",
@@ -2057,14 +2057,14 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-properties"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "kimberlite-query"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "base64",
  "bytes",
@@ -2083,7 +2083,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-rbac"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "blake3",
  "kimberlite-types",
@@ -2096,7 +2096,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-server"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "base64",
  "bytes",
@@ -2128,7 +2128,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-sim"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -2155,7 +2155,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-storage"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "bytes",
  "kimberlite-crypto",
@@ -2171,7 +2171,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-store"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "bytes",
  "kimberlite-crypto",
@@ -2181,7 +2181,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-types"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "bytes",
  "getrandom 0.4.2",
@@ -2190,7 +2190,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-vsr"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "bytes",
  "crossbeam-queue",
@@ -2211,7 +2211,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-wire"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "bytes",
  "kimberlite-crypto",
@@ -3401,9 +3401,9 @@ dependencies = [
 
 [[package]]
 name = "rust_decimal"
-version = "1.40.0"
+version = "1.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61f703d19852dbf87cbc513643fa81428361eb6940f1ac14fd58155d295a3eb0"
+checksum = "2ce901f9a19d251159075a4c37af514c3b8ef99c22e02dd8c19161cf397ee94a"
 dependencies = [
  "arrayvec",
  "borsh",
@@ -3413,6 +3413,7 @@ dependencies = [
  "rkyv",
  "serde",
  "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -4390,9 +4391,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.22.0"
+version = "1.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a68d3c8f01c0cfa54a75291d83601161799e4a89a39e0929f4b0354d88757a37"
+checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
@@ -4466,6 +4467,7 @@ dependencies = [
  "cfg-if",
  "once_cell",
  "rustversion",
+ "serde",
  "wasm-bindgen-macro",
  "wasm-bindgen-shared",
 ]

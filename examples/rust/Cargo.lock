@@ -1305,7 +1305,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-client"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -1319,7 +1319,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-crypto"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "aes-gcm",
  "blake3",
@@ -1349,14 +1349,14 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-properties"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "kimberlite-types"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "bytes",
  "getrandom 0.4.2",
@@ -1365,7 +1365,7 @@ dependencies = [
 
 [[package]]
 name = "kimberlite-wire"
-version = "0.6.0"
+version = "0.8.0"
 dependencies = [
  "bytes",
  "kimberlite-crypto",

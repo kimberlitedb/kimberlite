@@ -15,13 +15,18 @@ user-facing narrative.
 
 ## [Unreleased]
 
-_Accretion slot for v0.8.0 work. See [`ROADMAP.md`](./ROADMAP.md#v080--in-flight)
-for the planned scope._
+_Accretion slot for v0.9.0 work. See [`ROADMAP.md`](./ROADMAP.md)
+for planned scope._
 
-The first wave of v0.8.0 PRs is the notebar v0.7.0-migration wishlist —
-six items that surfaced once notebar drove a real workload on top of the
-v0.7.0 release. Each ships behind its own PR and lands when reviewed; the
-order below tracks the merge sequence.
+## [0.8.0] — 2026-05-06
+
+**Theme:** notebar v0.7.0-migration wishlist + SDK error/audit
+ratchet. Six items surfaced when notebar drove a real workload on top
+of v0.7.0; each shipped behind its own PR and merged in sequence
+(#125 → #131). The CI floor was repaired in the same window —
+`tla2tools.jar` SHA pin re-bumped (#132), Dependabot rust-minor group
+of 27 crate bumps (#133) and the GitHub Actions group bump (#124)
+landed alongside the feature work.
 
 ### Breaking changes (pre-1.0)
 
