@@ -996,7 +996,7 @@ pub struct VerifyAuditChainResponse {
     /// Earliest mismatched event index when `ok == false`. `None`
     /// when the chain is intact.
     pub mismatch_at_index: Option<u64>,
-    /// Display form of the underlying [`AuditChainError`]. `None`
+    /// Display form of the underlying audit-chain error. `None`
     /// when the chain is intact.
     pub error_message: Option<String>,
 }

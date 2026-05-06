@@ -69,7 +69,9 @@ fn chain_head_hex_format() {
     let head_hex = tenant.audit_log_chain_head_hex();
     assert_eq!(head_hex.len(), 64, "SHA-256 hex must be 64 chars");
     assert!(
-        head_hex.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        head_hex
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
         "hex must be lowercase: got {head_hex}"
     );
     assert_ne!(head_hex, "0".repeat(64), "head must advance");

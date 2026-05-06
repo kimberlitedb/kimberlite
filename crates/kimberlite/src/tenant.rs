@@ -4070,7 +4070,8 @@ impl TenantHandle {
     ///
     /// On success, returns `(event_count, chain_head)` so the caller
     /// can stamp the result into a regulator-visible report. On
-    /// failure, returns an [`AuditChainError`] that names the
+    /// failure, returns an
+    /// [`kimberlite_compliance::audit::AuditChainError`] that names the
     /// earliest broken event.
     /// Returns the hex-encoded SHA-256 chain head of the compliance
     /// audit log. v0.8.0 — paired with [`Self::audit_log_verify_chain`].
@@ -4080,25 +4081,23 @@ impl TenantHandle {
             Ok(g) => g,
             Err(_) => return "0".repeat(64),
         };
+        use std::fmt::Write as _;
         let head = inner.audit_log.chain_head();
         let mut s = String::with_capacity(64);
         for byte in head.iter() {
-            s.push_str(&format!("{byte:02x}"));
+            let _ = write!(s, "{byte:02x}");
         }
         s
     }
 
     pub fn audit_log_verify_chain(
         &self,
-    ) -> std::result::Result<(u64, [u8; 32]), kimberlite_compliance::audit::AuditChainError>
-    {
+    ) -> std::result::Result<(u64, [u8; 32]), kimberlite_compliance::audit::AuditChainError> {
         let inner = match self.db.inner().read() {
             Ok(g) => g,
             Err(_) => return Err(kimberlite_compliance::audit::AuditChainError::ChainHeadMismatch),
         };
-        if let Err(e) = inner.audit_log.verify_chain() {
-            return Err(e);
-        }
+        inner.audit_log.verify_chain()?;
         let count = inner
             .audit_log
             .query(&kimberlite_compliance::audit::AuditQuery {
