@@ -1,4 +1,4 @@
-# SDK parity matrix — v0.6.0
+# SDK parity matrix — v0.7.0+
 
 Source-of-truth for "does feature X exist in SDK Y?" across the three
 supported language SDKs (Rust / TypeScript / Python). Update this table
@@ -17,6 +17,7 @@ whenever a new wire primitive lands.
 | `create_stream` (with placement) | ✅ | ✅ | ✅ |
 | `append` (optimistic concurrency) | ✅ | ✅ | ✅ |
 | `read_events` | ✅ | ✅ | ✅ |
+| `stream_length` (O(1) event count, v0.8.0) | ✅ | ✅ (`streamLength`) | 🚧 v0.8 |
 | `query` | ✅ | ✅ | ✅ |
 | `query_at` (time-travel) | ✅ | ✅ | ✅ |
 | `execute` (DML, returns ExecuteResult) | ✅ | ✅ | ✅ |
@@ -110,6 +111,21 @@ Legend: ✅ shipped • 🚧 deferred to a later release.
 | `tracing::instrument` / request-ID propagation | ✅ | ✅ | ✅ |
 | Structured errors with `code: ErrorCode` | ✅ | ✅ | ✅ |
 | `isRetryable()` / `is_retryable()` | ✅ | ✅ | ✅ (via `ClientError.code`) |
+| Typed unique-constraint violation error (v0.8.0) | ✅ | ✅ | ✅ |
+| `requestId` on `eraseSubject` `onStream` callback (v0.8.0) | ✅ (closure breaks pre-1.0) | ✅ (additive 2nd arg) | ✅ (arity-detected) |
+
+## v0.7.0 typed primitives (TypeScript bindings — v0.8.0)
+
+Wire-level `QueryParam` / `QueryValue` round-trip for these types is
+a deliberate follow-up; today they're reachable through SQL fragment
+builders that the typed-primitives module ships.
+
+| Feature | Rust | TypeScript | Python |
+|---|---|---|---|
+| `Interval` typed primitive | ✅ (kernel) | ✅ (TS shape + `intervalLiteral`) | 🚧 v0.8 |
+| `SubstringRange` typed primitive | ✅ (kernel) | ✅ (TS shape + `substringSql`) | 🚧 v0.8 |
+| `DateField` closed enum | ✅ (kernel) | ✅ (string-literal union + `extractFromSql` / `dateTruncSql`) | 🚧 v0.8 |
+| `AggregateMemoryBudget` typed primitive | ✅ (kernel) | ✅ (TS shape + floor enforcement) | 🚧 v0.8 |
 
 ## Framework integration examples (Phase 8)
 

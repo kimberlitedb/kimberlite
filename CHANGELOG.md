@@ -18,6 +18,139 @@ user-facing narrative.
 _Accretion slot for v0.8.0 work. See [`ROADMAP.md`](./ROADMAP.md#v080--in-flight)
 for the planned scope._
 
+The first wave of v0.8.0 PRs is the notebar v0.7.0-migration wishlist —
+six items that surfaced once notebar drove a real workload on top of the
+v0.7.0 release. Each ships behind its own PR and lands when reviewed; the
+order below tracks the merge sequence.
+
+### Breaking changes (pre-1.0)
+
+- **Rust SDK: `Client::erase_subject` / `erase_subject_with_streams`
+  closure type bumps from `FnMut(StreamId) -> ClientResult<u64>` to
+  `FnMut(StreamId, &str) -> ClientResult<u64>`** — the second argument
+  is the erasure request id, so callers can tag the shred event with
+  a stable correlation id without fabricating a placeholder. TS / Python
+  callbacks stay backwards-compatible (TS allows fewer-arg function
+  assignment; Python uses `inspect`-based arity detection). Migration:
+  add a `request_id` parameter to the closure or accept it via `_`.
+
+### Added — SDK error surface
+
+- **Typed unique-constraint error end-to-end.** New
+  `QueryError::DuplicatePrimaryKey { table: String, key: Vec<Value> }`
+  variant emitted at the duplicate-PK INSERT path
+  (`crates/kimberlite/src/tenant.rs:1628`); plumbed through
+  `ErrorCode::UniqueConstraintViolation = 29` on the wire,
+  `KmbErrUniqueConstraintViolation = 16` over the FFI, and surfaced
+  as typed error classes per SDK:
+  - Rust: `ClientError::is_unique_constraint_violation()` predicate;
+    `DomainError::Conflict` mapping (existing shape).
+  - TypeScript: `UniqueConstraintViolationError` class wired into
+    `wrapNativeError`.
+  - Python: `UniqueConstraintViolationError` class +
+    `KimberliteError.is_unique_constraint_violation()` predicate.
+  Notebar's `webhook-dedup.ts` try-INSERT-then-SELECT recovery loop
+  collapses to a single typed catch.
+
+### Added — eraseSubject orchestrator
+
+- **`requestId` exposed to the per-stream callback.** TS callback
+  signature gains a 2nd arg `(streamId: StreamId, requestId: string)
+  => Promise<bigint>`; old 1-arg callbacks still type-check (TS
+  fewer-arg assignment). Python orchestrator uses `inspect` to detect
+  callback arity and dispatches to the new shape only when the
+  callable accepts it; legacy `on_stream` keeps working without
+  modification. Rust closure type bumps to `FnMut(StreamId, &str) ->
+  ClientResult<u64>` (pre-1.0 SDK breaking change documented in the
+  rustdoc and Breaking changes section above). Closes notebar's
+  empty-string placeholder in `erasure.ts:139`.
+
+### Added — DROP TABLE row purge
+
+- **`Effect::ProjectionRowsPurge { tenant_id, table_id }`.** New
+  effect emitted alongside `Effect::TableMetadataDrop` in the
+  `Command::DropTable` handler. Production runtime calls
+  `ProjectionStore::purge_table(table_id)` (new trait method); the
+  `BTreeStore` impl drops the per-table `BTreeMeta` from the
+  superblock so subsequent reads return empty. v0.7.0's metadata-only
+  DROP semantics are gone; recreating a table by the same name (=
+  same `TableId`, since `TableId = hash(tenant, name)`) starts on an
+  empty B-tree. The previously-`#[ignore]`d regression net at
+  `tests/catalog_staleness.rs::drop_does_not_yet_purge_projection_rows`
+  is renamed `drop_table_purges_projection_rows` and now passes.
+
+### Added — stream-length primitive
+
+- **`streamLength(streamId)` / `stream_length(stream_id)` on the SDK.**
+  O(1) read of `StreamMetadata.current_offset`; new wire frames
+  `StreamInfoRequest` + `StreamInfoResponse { length: u64 }` carry the
+  count without paging events. Replaces the full-stream `readAll(...)`
+  walk that notebar's Group-1 telemetry sites were using purely to
+  count rows. Ships in TypeScript and Rust this cycle; Python parity
+  is a focused follow-up against the same wire frame.
+
+### Added — typed primitive bindings (TypeScript)
+
+- **TS bindings for `Interval`, `AggregateMemoryBudget`,
+  `SubstringRange`, and `DateField`.** New module
+  `sdks/typescript/src/typed-primitives.ts` exposes type definitions
+  (mirroring the v0.7.0 Rust shapes — `DateField` as a string-literal
+  union per SDK shape decision), constructors that enforce the
+  Rust-side invariants (`intervalFromComponents` normalises sub-day
+  nanos overflow into days; `substringWithLength` rejects negative
+  length; `aggregateMemoryBudget` enforces the 64 KiB floor), and
+  SQL fragment builders (`extractFromSql`, `dateTruncSql`,
+  `intervalLiteral`, `substringSql`) so callers don't string-
+  concatenate. Wire-level `QueryParam` / `QueryValue` round-trip
+  for these types is a deliberate follow-up.
+
+### Added — audit subsystem wiring
+
+- **`audit.verifyChain()` server-walked attestation.** Replaces the
+  v0.5.0 / v0.6.0 stubs that returned a hardcoded `{ ok: true }`.
+  New wire frames `VerifyAuditChainRequest` / `VerifyAuditChainResponse
+  { ok, event_count, chain_head_hex, mismatch_at_index, error_message }`;
+  server handler delegates to `ComplianceAuditLog::verify_chain` (the
+  SHA-256 hash chain walk in the kernel since AUDIT-2026-04 H-2). On
+  chain breaks, the earliest mismatched event index is surfaced via
+  `mismatch_at_index` so regulator-visible reports can pinpoint the
+  tampering location. New `TenantHandle::audit_log_verify_chain` and
+  `audit_log_chain_head_hex` helpers; Rust `Client::verify_audit_chain`;
+  napi-rs `JsClient::verify_audit_chain`; TS
+  `compliance.audit.verifyChain()` returns the populated
+  `ChainVerification` shape with the real `eventCount` /
+  `chainHeadHex` / `firstBrokenAt` fields. Python parity is a
+  follow-up.
+- **`audit.subscribe()` polling iterator (TS).** Replaces the no-op
+  stub. Implementation polls the existing `audit.query()` at
+  `intervalMs` cadence (default 1s), yields entries newer than the
+  high-water timestamp, supports `AbortSignal` cancellation, and
+  matches the shape of `erasure.subscribe()`. Cross-stream
+  subscription-filter server hook (push-based instead of polling)
+  is deferred; the polling iterator is sufficient for the dashboard
+  use-case notebar surfaced.
+
+### Documentation
+
+- **`docs/reference/sdk/parity.md`** updated: `audit.subscribe`
+  marked TS ✅ (polling iterator), Rust/Python 🚧 v0.8; new
+  `audit.verifyChain` row TS ✅ / Rust ✅ / Python 🚧 v0.8.
+- **`ROADMAP.md`** v0.8.0 in-flight section consolidated to
+  10 items (4 carried-over + 6 notebar-wishlist), each with file:line
+  references for the implementation surface.
+
+### Carried over from v0.7.0 deferred (still in flight)
+
+- Go SDK Phase 1 (`Connect`/`Query`/`Append`/`Read`/`Subscribe`/
+  `Pool` over the existing FFI bridge)
+- Plan-time time-fold production wiring (substitutes
+  `ScalarExpr::Now` / `CurrentTimestamp` / `CurrentDate` sentinels
+  with literal values at plan time)
+- VOPR scenario drivers for the 16 v0.7.0 scaffolds (`Masking*` /
+  `Upsert*` / `AsOfTimestamp*` / `EraseAutoDiscovery*` families)
+- Pool metrics — client-side Prometheus parity (TS / Python / Rust
+  `pool.metrics()` text format, AWS ECS-friendly)
+
 ---
 
 ## [0.7.0] — 2026-05-04
