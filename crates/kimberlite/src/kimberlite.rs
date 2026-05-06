@@ -359,6 +359,25 @@ impl KimberliteInner {
                     #[cfg(not(feature = "broadcast"))]
                     let _ = tenant_id; // silence unused warning without broadcast
                 }
+                Effect::ProjectionRowsPurge {
+                    tenant_id,
+                    table_id,
+                } => {
+                    // v0.8.0 — drop projection-store rows for the
+                    // table being dropped so a subsequent CREATE TABLE
+                    // with the same name (= same TableId, since
+                    // TableId = hash(tenant, name)) starts empty.
+                    // v0.7.0 was metadata-only; see the
+                    // `tests/catalog_staleness.rs::drop_does_not_yet_purge_projection_rows`
+                    // regression net.
+                    let store_table_id = kimberlite_store::TableId::from(table_id.0);
+                    self.projection_store.purge_table(store_table_id)?;
+                    tracing::debug!(
+                        ?tenant_id,
+                        ?table_id,
+                        "projection-store rows purged for dropped table"
+                    );
+                }
                 Effect::IndexMetadataWrite(metadata) => {
                     // Index metadata is tracked in kernel state
                     // Rebuild schema to include new index

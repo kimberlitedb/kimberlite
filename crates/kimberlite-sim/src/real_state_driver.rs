@@ -141,6 +141,11 @@ impl ProjectionStore for InMemoryProjectionStore {
     fn sync(&mut self) -> Result<(), StoreError> {
         Ok(())
     }
+
+    fn purge_table(&mut self, table: TableId) -> Result<(), StoreError> {
+        self.tables.remove(&table);
+        Ok(())
+    }
 }
 
 const N_STREAMS: u64 = 8;

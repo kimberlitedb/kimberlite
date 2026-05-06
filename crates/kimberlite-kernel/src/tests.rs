@@ -518,11 +518,18 @@ fn drop_table_removes_table_from_state() {
     // Verify table no longer exists
     assert!(!state.table_exists(&test_table_id()));
 
-    // Should produce TableMetadataDrop effect
+    // Should produce TableMetadataDrop + ProjectionRowsPurge effects
+    // (v0.8.0 — the row-purge effect closes the v0.7.0 known-issue
+    // around DROP+CREATE same-name leaving stale projection rows).
     assert!(
         effects
             .iter()
             .any(|e| matches!(e, Effect::TableMetadataDrop { .. }))
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::ProjectionRowsPurge { .. }))
     );
 }
 

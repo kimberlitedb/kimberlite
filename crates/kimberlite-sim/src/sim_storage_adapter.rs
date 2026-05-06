@@ -140,6 +140,12 @@ impl SimStorageAdapter {
                 // Drop table metadata - no storage I/O needed for simulation
                 Ok(())
             }
+            Effect::ProjectionRowsPurge { .. } => {
+                // v0.8.0 — projection-store row purge has no storage
+                // I/O signal in the sim; the realism track records
+                // it the same way as `TableMetadataDrop`.
+                Ok(())
+            }
             Effect::IndexMetadataWrite(_metadata) => {
                 // Write index metadata
                 let address = self.allocate_address();
