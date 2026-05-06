@@ -77,8 +77,8 @@ pub use message::{
     SubscribeRequest, SubscribeResponse, SubscriptionAckResponse, SubscriptionCloseReason,
     SyncRequest, SyncResponse, TableInfo, TenantCreateRequest, TenantCreateResponse,
     TenantDeleteRequest, TenantDeleteResponse, TenantGetRequest, TenantGetResponse, TenantInfo,
-    TenantListRequest, TenantListResponse, UnsubscribeRequest, VerifyExportRequest,
-    VerifyExportResponse,
+    TenantListRequest, TenantListResponse, UnsubscribeRequest, VerifyAuditChainRequest,
+    VerifyAuditChainResponse, VerifyExportRequest, VerifyExportResponse,
 };
 
 #[cfg(test)]

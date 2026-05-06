@@ -84,7 +84,8 @@ their existing test harnesses.
 | Feature | Rust | TypeScript | Python |
 |---|---|---|---|
 | `audit.query` (PHI-safe, v0.6.0 Tier 2 #9) | ✅ | ✅ | ✅ |
-| `audit.subscribe` (filter hook) | 🚧 v0.7 | 🚧 v0.7 | 🚧 v0.7 |
+| `audit.subscribe` (polling iterator, v0.8.0) | 🚧 v0.8 | ✅ | 🚧 v0.8 |
+| `audit.verifyChain` (server-walked, v0.8.0) | ✅ | ✅ | 🚧 v0.8 |
 | `export_subject` | ✅ | ✅ | ✅ |
 | `verify_export` | ✅ | ✅ | ✅ |
 | `breach_report_indicator` | ✅ | ✅ | ✅ |

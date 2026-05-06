@@ -594,6 +594,17 @@ pub struct JsAuditEntry {
     pub changed_field_names: Vec<String>,
 }
 
+/// **v0.8.0** — structured chain-verification report for
+/// `verifyAuditChain`. Mirrors `kimberlite_wire::VerifyAuditChainResponse`.
+#[napi(object)]
+pub struct JsVerifyAuditChainReport {
+    pub ok: bool,
+    pub event_count: BigInt,
+    pub chain_head_hex: String,
+    pub mismatch_at_index: Option<BigInt>,
+    pub error_message: Option<String>,
+}
+
 /// **v0.6.0 Tier 2 #9** — filter for `auditQuery`. All fields
 /// optional; unset fields don't constrain the query.
 #[napi(object)]
@@ -1589,6 +1600,26 @@ impl KimberliteClient {
         })
         .await?;
         Ok(list.into_iter().map(audit_event_info_to_js).collect())
+    }
+
+    /// Walks the compliance audit log's SHA-256 hash chain server-side
+    /// and returns a structured verification report. v0.8.0.
+    #[napi]
+    pub async fn verify_audit_chain(&self) -> Result<JsVerifyAuditChainReport> {
+        let client = self.inner.clone();
+        let audit = self.audit_snapshot();
+        let report = spawn_blocking_with_audit(audit, move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.verify_audit_chain()
+        })
+        .await?;
+        Ok(JsVerifyAuditChainReport {
+            ok: report.ok,
+            event_count: BigInt::from(report.event_count),
+            chain_head_hex: report.chain_head_hex,
+            mismatch_at_index: report.mismatch_at_index.map(BigInt::from),
+            error_message: report.error_message,
+        })
     }
 
     /// Block (on a worker thread) until the next event for the given

@@ -178,6 +178,9 @@ pub enum RequestPayload {
 
     // ---- Phase 6: Audit ----------------------------------------------
     AuditQuery(AuditQueryRequest),
+    /// v0.8.0 — walk the compliance audit log's SHA-256 hash chain
+    /// and return a structured verification report.
+    VerifyAuditChain(VerifyAuditChainRequest),
 
     // ---- Phase 6: Export (GDPR Article 20) ---------------------------
     ExportSubject(ExportSubjectRequest),
@@ -968,6 +971,36 @@ pub struct AuditQueryResponse {
     pub events: Vec<AuditEventInfo>,
 }
 
+/// v0.8.0 — request to verify the compliance audit log's SHA-256
+/// hash chain. Currently no fields; the tenant scope is taken from
+/// the request envelope. Future versions may grow `since_nanos` /
+/// `until_nanos` for sub-range verification.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VerifyAuditChainRequest {}
+
+/// v0.8.0 — structured chain-verification report. `ok == true` means
+/// the chain is intact; on failure, `mismatch_at_index` and
+/// `error_message` name the earliest broken event so a regulator-
+/// visible report can pinpoint the tampering location.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifyAuditChainResponse {
+    /// Whole-chain verdict.
+    pub ok: bool,
+    /// Number of events walked. Valid even when `ok == false`.
+    pub event_count: u64,
+    /// Hex-encoded SHA-256 chain head (current `event_hash` of the
+    /// last event, or `"00" * 32` for an empty log). Always present
+    /// — even on failure — because the head is read directly off the
+    /// log structure rather than recomputed.
+    pub chain_head_hex: String,
+    /// Earliest mismatched event index when `ok == false`. `None`
+    /// when the chain is intact.
+    pub mismatch_at_index: Option<u64>,
+    /// Display form of the underlying [`AuditChainError`]. `None`
+    /// when the chain is intact.
+    pub error_message: Option<String>,
+}
+
 // ============================================================================
 // Phase 6 — Export (GDPR Article 20)
 // ============================================================================
@@ -1416,6 +1449,8 @@ pub enum ResponsePayload {
 
     // Phase 6
     AuditQuery(AuditQueryResponse),
+    /// v0.8.0 — chain verification report.
+    VerifyAuditChain(VerifyAuditChainResponse),
     ExportSubject(ExportSubjectResponse),
     VerifyExport(VerifyExportResponse),
     BreachReportIndicator(BreachReportIndicatorResponse),

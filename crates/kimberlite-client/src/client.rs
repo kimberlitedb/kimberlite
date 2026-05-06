@@ -1495,6 +1495,27 @@ impl Client {
         }
     }
 
+    /// Walk the compliance audit log's SHA-256 hash chain server-side
+    /// and return a structured verification report. v0.8.0 — replaces
+    /// the previous SDK-side stubs with a real wire path.
+    pub fn verify_audit_chain(
+        &mut self,
+    ) -> ClientResult<kimberlite_wire::VerifyAuditChainResponse> {
+        match self
+            .send_request(RequestPayload::VerifyAuditChain(
+                kimberlite_wire::VerifyAuditChainRequest::default(),
+            ))?
+            .payload
+        {
+            ResponsePayload::VerifyAuditChain(r) => Ok(r),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "VerifyAuditChain".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
     /// Produce a GDPR Article 20 portability export for a subject.
     pub fn export_subject(
         &mut self,

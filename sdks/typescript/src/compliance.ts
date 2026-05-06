@@ -620,39 +620,105 @@ class AuditNamespace {
   }
 
   /**
-   * **v0.6.0 Tier 2 #9** — subscribe to new matching audit events.
+   * **v0.8.0** — subscribe to new matching audit events via polling.
    *
-   * NOTE: Blocked on a server-side subscription-filter hook — the
-   * existing `Subscribe` primitive streams a single stream by
-   * `streamId`, not a cross-stream filter over the audit log.
-   * Plumbed through as a future-work shim so callers can code
-   * against the final shape today; lands fully in v0.7.0.
+   * Implemented as a poll loop over the existing {@link query} surface
+   * (the Subscribe primitive is per-stream, and a cross-stream
+   * subscription-filter hook is a separate piece of server work).
+   * Each tick polls events newer than the last-seen timestamp; calls
+   * the supplied `onEntry` callback with anything new; sleeps
+   * `intervalMs` before the next tick. Returns a handle whose
+   * {@code close()} stops the loop and resolves once the in-flight
+   * tick (if any) finishes.
+   *
+   * @param filter — same shape as {@link query}; the `fromTs` field
+   *   is overwritten on each tick to the most recent event timestamp.
+   * @param onEntry — called once per new entry. Awaited per call so
+   *   the loop won't fire faster than the slowest consumer.
+   * @param opts.intervalMs — poll cadence. Default `1000`.
+   * @param opts.signal — cooperative cancellation. The loop also
+   *   stops on `close()`.
    */
   async subscribe(
-    _filter: AuditQueryFilter,
-    _onEntry: (entry: AuditEntry) => void,
+    filter: AuditQueryFilter,
+    onEntry: (entry: AuditEntry) => void | Promise<void>,
+    opts: { intervalMs?: number; signal?: AbortSignal } = {},
   ): Promise<{ close(): Promise<void> }> {
-    // Future work — the Subscribe primitive (v0.4.0) does not yet
-    // accept a cross-stream filter predicate. This surface is
-    // reserved; callers can `await` it and call `.close()` no-ops
-    // today. Wired in v0.7.0 alongside the filtered-subscribe
-    // server hook.
-    return { close: async () => undefined };
+    const intervalMs = opts.intervalMs ?? 1000;
+    let stopped = false;
+    let inflight: Promise<void> | null = null;
+    // Track the highest occurredAt seen so successive ticks only fetch
+    // events newer than the last one. Initialised to the caller's
+    // `fromTs` (or "now" if unset) so we don't replay history.
+    let highWater: Date = filter.fromTs ?? new Date();
+
+    const tick = async (): Promise<void> => {
+      const tickFilter: AuditQueryFilter = { ...filter, fromTs: highWater };
+      const entries = await this.query(tickFilter);
+      for (const entry of entries) {
+        if (stopped || opts.signal?.aborted) return;
+        // The query is `>= fromTs`; skip exactly-equal occurredAt to
+        // avoid re-yielding the boundary entry.
+        if (entry.occurredAt.getTime() <= highWater.getTime()) continue;
+        await onEntry(entry);
+        if (entry.occurredAt > highWater) highWater = entry.occurredAt;
+      }
+    };
+
+    const loop = async (): Promise<void> => {
+      while (!stopped && !opts.signal?.aborted) {
+        inflight = tick();
+        try {
+          await inflight;
+        } catch {
+          // Swallow per-tick errors — a transient query failure
+          // shouldn't terminate the subscription. Future work: surface
+          // via an `onError` callback.
+        } finally {
+          inflight = null;
+        }
+        if (stopped || opts.signal?.aborted) break;
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+    };
+    void loop();
+
+    return {
+      close: async (): Promise<void> => {
+        stopped = true;
+        if (inflight) {
+          try {
+            await inflight;
+          } catch {
+            // Ignore — the subscription is closing.
+          }
+        }
+      },
+    };
   }
 
   /**
-   * Walk the compliance audit chain and return a summary. The
-   * current wire protocol does not yet expose a dedicated
-   * verify-chain call, so this helper is a stub that reports the
-   * walk as successful — integrate with the 0.6.0 wire
-   * {@code VerifyAuditChainRequest} once it lands.
+   * **v0.8.0** — walk the compliance audit log's SHA-256 hash chain
+   * server-side and return a structured verification report. Replaces
+   * the v0.5.0 / v0.6.0 stubs that returned a hardcoded `ok: true`.
+   *
+   * On success, `ok === true`, `eventCount` carries the number of
+   * events walked, and `chainHeadHex` is the hex-encoded SHA-256 of
+   * the current chain head. On a tampering detection, `ok === false`,
+   * `firstBrokenAt` carries the earliest mismatched event index (as
+   * a string for forward compatibility), and the underlying error
+   * message is surfaced through {@link ChainVerification.firstBrokenAt}.
    */
   async verifyChain(): Promise<ChainVerification> {
-    void this.native;
+    const report = await this.native.verifyAuditChain();
     return {
-      eventCount: 0,
-      chainHeadHex: '',
-      ok: true,
+      eventCount: Number(report.eventCount),
+      chainHeadHex: report.chainHeadHex,
+      ok: report.ok,
+      firstBrokenAt:
+        report.mismatchAtIndex !== null && report.mismatchAtIndex !== undefined
+          ? report.mismatchAtIndex.toString()
+          : report.errorMessage ?? undefined,
     };
   }
 
