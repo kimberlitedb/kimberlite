@@ -110,6 +110,9 @@ class FakeNative {
   async readEvents(): Promise<{ events: Buffer[]; nextOffset: bigint | null }> {
     return { events: [], nextOffset: null };
   }
+  async streamLength(): Promise<bigint> {
+    return 0n;
+  }
   async query(): Promise<{ columns: string[]; rows: never[] }> {
     return { columns: [], rows: [] };
   }

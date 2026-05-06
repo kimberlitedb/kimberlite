@@ -75,11 +75,10 @@ pub use message::{
     QueryResponse, QueryValue, ReadEventsRequest, ReadEventsResponse, Request, RequestId,
     RequestPayload, Response, ResponsePayload, ServerInfoResponse, StreamInfoRequest,
     StreamInfoResponse, SubscribeCreditRequest, SubscribeRequest, SubscribeResponse,
-    SubscriptionAckResponse, SubscriptionCloseReason,
-    SyncRequest, SyncResponse, TableInfo, TenantCreateRequest, TenantCreateResponse,
-    TenantDeleteRequest, TenantDeleteResponse, TenantGetRequest, TenantGetResponse, TenantInfo,
-    TenantListRequest, TenantListResponse, UnsubscribeRequest, VerifyExportRequest,
-    VerifyExportResponse,
+    SubscriptionAckResponse, SubscriptionCloseReason, SyncRequest, SyncResponse, TableInfo,
+    TenantCreateRequest, TenantCreateResponse, TenantDeleteRequest, TenantDeleteResponse,
+    TenantGetRequest, TenantGetResponse, TenantInfo, TenantListRequest, TenantListResponse,
+    UnsubscribeRequest, VerifyExportRequest, VerifyExportResponse,
 };
 
 #[cfg(test)]

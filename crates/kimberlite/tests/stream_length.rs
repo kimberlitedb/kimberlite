@@ -13,7 +13,7 @@ use kimberlite_types::{DataClass, Offset};
 fn open() -> (tempfile::TempDir, Kimberlite, kimberlite::TenantHandle) {
     let dir = tempfile::tempdir().expect("tempdir");
     let db = Kimberlite::open(dir.path()).expect("open db");
-    let tenant = db.tenant(TenantId::new(0xC0FFEE));
+    let tenant = db.tenant(TenantId::new(0x00C0_FFEE));
     (dir, db, tenant)
 }
 
@@ -42,7 +42,11 @@ fn stream_length_matches_event_count_after_appends() {
     // per event.
     for i in 0..5_u64 {
         tenant
-            .append(stream_id, vec![format!("event-{i}").into_bytes()], Offset::new(i))
+            .append(
+                stream_id,
+                vec![format!("event-{i}").into_bytes()],
+                Offset::new(i),
+            )
             .expect("append");
     }
 
@@ -57,7 +61,11 @@ fn stream_length_matches_event_count_after_appends() {
     tenant
         .append(
             stream_id,
-            vec![b"batch-a".to_vec(), b"batch-b".to_vec(), b"batch-c".to_vec()],
+            vec![
+                b"batch-a".to_vec(),
+                b"batch-b".to_vec(),
+                b"batch-c".to_vec(),
+            ],
             Offset::new(5),
         )
         .expect("append batch");
