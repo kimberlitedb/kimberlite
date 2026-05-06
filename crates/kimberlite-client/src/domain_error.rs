@@ -83,10 +83,8 @@ impl From<ClientError> for DomainError {
                 },
                 ErrorCode::TenantAlreadyExists
                 | ErrorCode::StreamAlreadyExists
-                | ErrorCode::UniqueConstraintViolation => DomainError::Conflict {
-                    reasons: vec![message.clone()],
-                },
-                ErrorCode::ConsentExpired => DomainError::Conflict {
+                | ErrorCode::UniqueConstraintViolation
+                | ErrorCode::ConsentExpired => DomainError::Conflict {
                     reasons: vec![message.clone()],
                 },
                 _ => DomainError::Unavailable {

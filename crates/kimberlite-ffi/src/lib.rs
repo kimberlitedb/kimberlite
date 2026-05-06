@@ -2460,9 +2460,7 @@ fn map_error(err: ClientError) -> KmbError {
                 ErrorCode::InvalidOffset => KmbError::KmbErrOffsetOutOfRange,
                 ErrorCode::QueryParseError => KmbError::KmbErrQuerySyntax,
                 ErrorCode::QueryExecutionError => KmbError::KmbErrQueryExecution,
-                ErrorCode::UniqueConstraintViolation => {
-                    KmbError::KmbErrUniqueConstraintViolation
-                }
+                ErrorCode::UniqueConstraintViolation => KmbError::KmbErrUniqueConstraintViolation,
                 _ => KmbError::KmbErrInternal,
             }
         }
