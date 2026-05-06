@@ -81,11 +81,11 @@ impl From<ClientError> for DomainError {
                 | ErrorCode::InvalidOffset => DomainError::Validation {
                     message: message.clone(),
                 },
-                ErrorCode::TenantAlreadyExists | ErrorCode::StreamAlreadyExists => {
-                    DomainError::Conflict {
-                        reasons: vec![message.clone()],
-                    }
-                }
+                ErrorCode::TenantAlreadyExists
+                | ErrorCode::StreamAlreadyExists
+                | ErrorCode::UniqueConstraintViolation => DomainError::Conflict {
+                    reasons: vec![message.clone()],
+                },
                 ErrorCode::ConsentExpired => DomainError::Conflict {
                     reasons: vec![message.clone()],
                 },
@@ -178,6 +178,22 @@ mod tests {
         match DomainError::from(err) {
             DomainError::Conflict { reasons } => {
                 assert_eq!(reasons, vec!["dup".to_string()]);
+            }
+            other => panic!("expected Conflict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unique_constraint_violation_maps_to_conflict() {
+        let err = ClientError::server(
+            ErrorCode::UniqueConstraintViolation,
+            "duplicate primary key in table 'users': [BigInt(1)]",
+        );
+        assert!(err.is_unique_constraint_violation());
+        match DomainError::from(err) {
+            DomainError::Conflict { reasons } => {
+                assert_eq!(reasons.len(), 1);
+                assert!(reasons[0].contains("duplicate primary key"));
             }
             other => panic!("expected Conflict, got {other:?}"),
         }

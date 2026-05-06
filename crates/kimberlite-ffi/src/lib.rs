@@ -101,6 +101,8 @@ pub enum KmbError {
     KmbErrClusterUnavailable = 14,
     /// Unknown error
     KmbErrUnknown = 15,
+    /// Duplicate primary key on INSERT — unique constraint violation
+    KmbErrUniqueConstraintViolation = 16,
 }
 
 /// Internal wrapper for the Rust client.
@@ -2458,6 +2460,9 @@ fn map_error(err: ClientError) -> KmbError {
                 ErrorCode::InvalidOffset => KmbError::KmbErrOffsetOutOfRange,
                 ErrorCode::QueryParseError => KmbError::KmbErrQuerySyntax,
                 ErrorCode::QueryExecutionError => KmbError::KmbErrQueryExecution,
+                ErrorCode::UniqueConstraintViolation => {
+                    KmbError::KmbErrUniqueConstraintViolation
+                }
                 _ => KmbError::KmbErrInternal,
             }
         }
@@ -3369,6 +3374,7 @@ pub unsafe extern "C" fn kmb_error_message(error: KmbError) -> *const c_char {
         KmbError::KmbErrInternal => "Internal server error\0",
         KmbError::KmbErrClusterUnavailable => "No cluster replicas available\0",
         KmbError::KmbErrUnknown => "Unknown error\0",
+        KmbError::KmbErrUniqueConstraintViolation => "Duplicate primary key\0",
     };
 
     msg.as_ptr() as *const c_char

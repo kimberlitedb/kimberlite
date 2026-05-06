@@ -81,6 +81,10 @@ typedef enum kmb_KmbError {
      Unknown error
      */
     KMB_KMB_ERROR_KMB_ERR_UNKNOWN = 15,
+    /*
+     Duplicate primary key on INSERT — unique constraint violation
+     */
+    KMB_KMB_ERROR_KMB_ERR_UNIQUE_CONSTRAINT_VIOLATION = 16,
 } kmb_KmbError;
 
 /*

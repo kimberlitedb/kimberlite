@@ -32,6 +32,7 @@ export type ErrorCode =
   | 'SubscriptionBackpressure'
   | 'ApiKeyNotFound'
   | 'TenantAlreadyExists'
+  | 'UniqueConstraintViolation'
   // Client-side synthetic codes (no wire counterpart):
   | 'Connection'
   | 'Timeout'
@@ -178,6 +179,21 @@ export class NotLeaderError extends KimberliteError {
 }
 
 /**
+ * INSERT failed because the row's primary key already exists.
+ *
+ * Carries the wire-side error message (which includes the table name and
+ * the rejected key tuple) so callers can replace try-INSERT-then-SELECT
+ * recovery loops with a single typed catch.
+ */
+export class UniqueConstraintViolationError extends KimberliteError {
+  constructor(message: string) {
+    super(message, 'UniqueConstraintViolation');
+    this.name = 'UniqueConstraintViolationError';
+    Object.setPrototypeOf(this, UniqueConstraintViolationError.prototype);
+  }
+}
+
+/**
  * A generic server-side error that doesn't map to a more specific subclass.
  * The `code` property exposes the wire error-code tag for inspection.
  */
@@ -237,6 +253,8 @@ function constructTypedError(code: ErrorCode, message: string): KimberliteError 
       return new RateLimitedError(message);
     case 'NotLeader':
       return new NotLeaderError(message);
+    case 'UniqueConstraintViolation':
+      return new UniqueConstraintViolationError(message);
     case 'TenantNotFound':
     case 'TableNotFound':
     case 'StreamAlreadyExists':

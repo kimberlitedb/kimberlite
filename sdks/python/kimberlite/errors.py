@@ -27,6 +27,7 @@ _ERR_TIMEOUT = 12
 _ERR_INTERNAL = 13
 _ERR_CLUSTER_UNAVAILABLE = 14
 _ERR_UNKNOWN = 15
+_ERR_UNIQUE_CONSTRAINT_VIOLATION = 16
 
 
 class KimberliteError(Exception):
@@ -121,6 +122,14 @@ class KimberliteError(Exception):
         """True if the tenant lacks permission for this operation."""
         return self.code == _ERR_PERMISSION_DENIED
 
+    def is_unique_constraint_violation(self) -> bool:
+        """True if an INSERT failed because the primary key already exists.
+
+        Lets callers replace try-INSERT-then-SELECT recovery loops with a
+        single ``except UniqueConstraintViolationError`` clause.
+        """
+        return self.code == _ERR_UNIQUE_CONSTRAINT_VIOLATION
+
 
 class ConnectionError(KimberliteError):
     """Failed to connect to Kimberlite server."""
@@ -187,6 +196,16 @@ class ClusterUnavailableError(KimberliteError):
     pass
 
 
+class UniqueConstraintViolationError(KimberliteError):
+    """INSERT rejected because the primary key already exists.
+
+    Carries the FFI-side error message (which includes the table name
+    and rejected key) so callers can replace try-INSERT-then-SELECT
+    recovery loops with a single ``except`` clause.
+    """
+    pass
+
+
 # Error code to exception mapping
 ERROR_MAP: Dict[int, Callable[[str], KimberliteError]] = {
     1: lambda msg: KimberliteError(msg, 1),  # NULL pointer
@@ -204,6 +223,7 @@ ERROR_MAP: Dict[int, Callable[[str], KimberliteError]] = {
     13: lambda msg: InternalError(msg, 13),
     14: lambda msg: ClusterUnavailableError(msg, 14),
     15: lambda msg: KimberliteError(msg, 15),  # Unknown
+    16: lambda msg: UniqueConstraintViolationError(msg, 16),
 }
 
 
