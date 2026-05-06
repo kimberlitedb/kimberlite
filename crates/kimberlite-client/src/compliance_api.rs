@@ -214,18 +214,25 @@ impl ErasureApi<'_> {
     ///
     /// `on_stream` is a caller-supplied callback that performs the
     /// actual redaction for a stream and returns the records-erased
-    /// count. Pass `None` to skip per-stream redaction (the server
-    /// still records the transition).
+    /// count. The callback receives `(stream_id, request_id)` so the
+    /// caller can write the shred event with a stable correlation id.
+    /// Pass `None` to skip per-stream redaction (the server still
+    /// records the transition).
     ///
     /// **v0.6.0 Tier 2 #8 — auto-discovery.** This method uses the
     /// server-populated `streams_affected` list on the pending
     /// request, which is auto-discovered from PHI/PII/Sensitive
     /// streams with a `subject_id` column. For explicit-stream
     /// override, use [`Self::erase_subject_with_streams`].
+    ///
+    /// **v0.8.0 — breaking change.** The `on_stream` closure now
+    /// takes `(StreamId, &str)` instead of `(StreamId)`. Pre-1.0
+    /// SDK signature change; callers should add the `request_id`
+    /// parameter (or accept it via `_` if unused).
     pub fn erase_subject(
         &mut self,
         subject_id: &str,
-        on_stream: Option<Box<dyn FnMut(StreamId) -> ClientResult<u64>>>,
+        on_stream: Option<Box<dyn FnMut(StreamId, &str) -> ClientResult<u64>>>,
     ) -> ClientResult<ErasureAuditInfo> {
         self.erase_subject_impl(subject_id, on_stream, None)
     }
@@ -237,7 +244,7 @@ impl ErasureApi<'_> {
         &mut self,
         subject_id: &str,
         streams: Vec<StreamId>,
-        on_stream: Option<Box<dyn FnMut(StreamId) -> ClientResult<u64>>>,
+        on_stream: Option<Box<dyn FnMut(StreamId, &str) -> ClientResult<u64>>>,
     ) -> ClientResult<ErasureAuditInfo> {
         self.erase_subject_impl(subject_id, on_stream, Some(streams))
     }
@@ -249,7 +256,7 @@ impl ErasureApi<'_> {
     fn erase_subject_impl(
         &mut self,
         subject_id: &str,
-        mut on_stream: Option<Box<dyn FnMut(StreamId) -> ClientResult<u64>>>,
+        mut on_stream: Option<Box<dyn FnMut(StreamId, &str) -> ClientResult<u64>>>,
         streams_override: Option<Vec<StreamId>>,
     ) -> ClientResult<ErasureAuditInfo> {
         let pending = self.request_typed(subject_id)?;
@@ -257,11 +264,12 @@ impl ErasureApi<'_> {
         // server-auto-discovered list on the pending response.
         let streams: Vec<StreamId> =
             streams_override.unwrap_or_else(|| pending.info.streams_affected.clone());
+        let request_id = pending.info.request_id.clone();
         let in_progress = self.mark_progress_typed(pending, streams.clone())?;
         let mut recording = ErasureRecordingInner::InProgress(in_progress);
         for sid in streams {
             let erased = match on_stream.as_mut() {
-                Some(cb) => cb(sid)?,
+                Some(cb) => cb(sid, request_id.as_str())?,
                 None => 0,
             };
             let next = match recording {
