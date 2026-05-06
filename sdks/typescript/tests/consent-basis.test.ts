@@ -48,6 +48,7 @@ function makeStubNative(
     createStreamWithPlacement: notImpl,
     append: notImpl,
     readEvents: notImpl,
+    streamLength: notImpl,
     query: notImpl,
     queryAt: notImpl,
     execute: notImpl,
