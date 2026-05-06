@@ -63,12 +63,11 @@ fn drop_create_insert_same_name_succeeds() {
     // at the dropped `TableDef`. Post-fix the parameter-bound
     // INSERT plans against the fresh schema and round-trips.
     //
-    // NOTE: we use a fresh PK (id=2) here. DROP TABLE is currently
-    // metadata-only — the underlying projection-store rows
-    // survive — so reusing id=1 would surface as a
-    // ConstraintViolation rather than the catalog-cache bug we're
-    // pinning. The data-purge-on-DROP gap is tracked separately
-    // (see `drop_does_not_yet_purge_projection_rows` below).
+    // NOTE: we use a fresh PK (id=2) here to keep this test focused
+    // on the catalog-cache bug rather than the data-purge path.
+    // DROP TABLE now also purges projection rows (v0.8.0); the
+    // dedicated regression net for that is
+    // `drop_table_purges_projection_rows` below.
     tenant
         .execute(
             "INSERT INTO notes (id, body) VALUES ($1, $2)",
@@ -88,10 +87,12 @@ fn drop_create_insert_same_name_succeeds() {
 }
 
 #[test]
-#[ignore = "v0.7.0 known-issue: DROP TABLE is metadata-only — projection-store rows survive. \
-           Tracked for v0.7.1+ alongside materialised-projection design. Documented here as \
-           a regression net for whoever lands the data-purge effect."]
-fn drop_does_not_yet_purge_projection_rows() {
+fn drop_table_purges_projection_rows() {
+    // v0.8.0: DROP TABLE now emits `Effect::ProjectionRowsPurge`
+    // alongside `Effect::TableMetadataDrop`. The recreated table
+    // starts empty; the previously-`#[ignore]`d regression net
+    // (`drop_does_not_yet_purge_projection_rows`) is now a live
+    // correctness assertion.
     let (_dir, _db, tenant) = open();
     tenant
         .execute(

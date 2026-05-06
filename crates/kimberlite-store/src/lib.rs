@@ -133,4 +133,18 @@ pub trait ProjectionStore: Send + Sync {
     ///
     /// Called after applying batches to ensure durability.
     fn sync(&mut self) -> Result<(), StoreError>;
+
+    /// Purge all rows for a dropped table.
+    ///
+    /// Drops the per-table B-tree metadata so subsequent `get` / `scan`
+    /// against `table` return empty. Underlying pages are not reclaimed
+    /// (free-list management is a separate concern); the user-visible
+    /// effect matches: `DROP TABLE` followed by `CREATE TABLE` with
+    /// the same name (and therefore the same `TableId`) starts clean.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] only on persistence failure; unknown
+    /// `table` is a no-op (idempotent).
+    fn purge_table(&mut self, table: TableId) -> Result<(), StoreError>;
 }

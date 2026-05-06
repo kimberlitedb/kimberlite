@@ -128,6 +128,13 @@ where
                 self.table_metadata.remove(&table_id);
             }
 
+            // The in-memory runtime has no projection store of its own —
+            // production storage is wired through the facade layer
+            // (`kimberlite::execute_effects`). The variant must be
+            // handled exhaustively; the in-memory tests do not assert
+            // on row state across DROP+CREATE cycles.
+            Effect::ProjectionRowsPurge { .. } => {}
+
             Effect::IndexMetadataWrite(metadata) => {
                 self.index_metadata.insert(metadata.index_id, metadata);
             }

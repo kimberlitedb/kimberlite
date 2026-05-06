@@ -276,6 +276,18 @@ impl ProjectionStore for BTreeStore {
 
         Ok(())
     }
+
+    fn purge_table(&mut self, table: TableId) -> Result<(), StoreError> {
+        // Drop the per-table B-tree metadata. Underlying pages stay
+        // allocated (free-list management is a separate concern), but
+        // every `ProjectionStore` read path returns `Ok(None)` /
+        // `Ok(Vec::new())` when the table isn't in
+        // `superblock.tables` — so a subsequent `CREATE TABLE` with
+        // the same name (= same `TableId` since `TableId = hash(tenant,
+        // name)`) starts on an empty B-tree.
+        self.superblock.tables.remove(&table);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
