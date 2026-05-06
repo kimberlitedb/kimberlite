@@ -2,6 +2,8 @@
 
 use kimberlite_store::StoreError;
 
+use crate::value::Value;
+
 /// Errors that can occur during query parsing and execution.
 #[derive(thiserror::Error, Debug)]
 pub enum QueryError {
@@ -42,9 +44,27 @@ pub enum QueryError {
         limit: usize,
     },
 
-    /// Constraint violation (e.g., duplicate primary key, NOT NULL violation).
+    /// Constraint violation (e.g., NOT NULL violation, type constraint).
+    ///
+    /// Generic catch-all for non-uniqueness constraint failures.
+    /// Duplicate primary keys raise [`Self::DuplicatePrimaryKey`] instead
+    /// so SDK callers can pattern-match without parsing message strings.
     #[error("constraint violation: {0}")]
     ConstraintViolation(String),
+
+    /// Duplicate primary-key value detected on INSERT.
+    ///
+    /// Carries the table name and the rejected key tuple so callers can
+    /// short-circuit retry/upsert flows without parsing the error string.
+    /// Notebar's webhook-dedup loop (try-INSERT-then-SELECT) is the
+    /// canonical consumer.
+    #[error("duplicate primary key in table '{table}': {key:?}")]
+    DuplicatePrimaryKey {
+        /// Name of the table whose primary key was violated.
+        table: String,
+        /// Rejected key tuple (one element per primary-key column).
+        key: Vec<Value>,
+    },
 
     /// Correlated subquery row-evaluation cap exceeded.
     ///

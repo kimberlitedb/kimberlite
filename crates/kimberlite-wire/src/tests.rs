@@ -143,6 +143,7 @@ fn test_error_codes() {
         ErrorCode::StorageError,
         ErrorCode::ProjectionLag,
         ErrorCode::RateLimited,
+        ErrorCode::UniqueConstraintViolation,
     ];
 
     for code in error_codes {

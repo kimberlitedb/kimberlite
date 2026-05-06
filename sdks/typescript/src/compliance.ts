@@ -473,7 +473,7 @@ class ErasureNamespace {
     opts: {
       reason?: string;
       streams?: StreamId[];
-      onStream?: (streamId: StreamId) => Promise<bigint>;
+      onStream?: (streamId: StreamId, requestId: string) => Promise<bigint>;
     } = {},
   ): Promise<ErasureAuditRecord> {
     const pending = await this.requestTyped(subjectId);
@@ -483,7 +483,10 @@ class ErasureNamespace {
     const inProgress = await this.markProgressTyped(pending, affected);
     let recording: ErasureInProgress | ErasureRecording = inProgress;
     for (const streamId of affected) {
-      const erased = opts.onStream ? await opts.onStream(streamId) : 0n;
+      // v0.8.0: pass requestId as the 2nd arg so callers can write the
+      // shred event with a stable correlation id. Existing 1-arg
+      // callbacks still type-check (TS allows fewer-arg assignment).
+      const erased = opts.onStream ? await opts.onStream(streamId, pending.requestId) : 0n;
       recording = await this.markStreamErasedTyped(recording, streamId, erased);
     }
     void opts.reason; // Reserved for a future `complete(reason)` overload.

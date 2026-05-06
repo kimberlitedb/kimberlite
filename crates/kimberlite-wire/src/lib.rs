@@ -73,12 +73,13 @@ pub use message::{
     MaskingPolicyListRequest, MaskingPolicyListResponse, MaskingStrategyWire, Message,
     PortabilityExportInfo, Push, PushPayload, QueryAtRequest, QueryParam, QueryRequest,
     QueryResponse, QueryValue, ReadEventsRequest, ReadEventsResponse, Request, RequestId,
-    RequestPayload, Response, ResponsePayload, ServerInfoResponse, SubscribeCreditRequest,
-    SubscribeRequest, SubscribeResponse, SubscriptionAckResponse, SubscriptionCloseReason,
-    SyncRequest, SyncResponse, TableInfo, TenantCreateRequest, TenantCreateResponse,
-    TenantDeleteRequest, TenantDeleteResponse, TenantGetRequest, TenantGetResponse, TenantInfo,
-    TenantListRequest, TenantListResponse, UnsubscribeRequest, VerifyAuditChainRequest,
-    VerifyAuditChainResponse, VerifyExportRequest, VerifyExportResponse,
+    RequestPayload, Response, ResponsePayload, ServerInfoResponse, StreamInfoRequest,
+    StreamInfoResponse, SubscribeCreditRequest, SubscribeRequest, SubscribeResponse,
+    SubscriptionAckResponse, SubscriptionCloseReason, SyncRequest, SyncResponse, TableInfo,
+    TenantCreateRequest, TenantCreateResponse, TenantDeleteRequest, TenantDeleteResponse,
+    TenantGetRequest, TenantGetResponse, TenantInfo, TenantListRequest, TenantListResponse,
+    UnsubscribeRequest, VerifyAuditChainRequest, VerifyAuditChainResponse, VerifyExportRequest,
+    VerifyExportResponse,
 };
 
 #[cfg(test)]

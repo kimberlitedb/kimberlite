@@ -120,6 +120,7 @@ export interface NativeKimberliteClient {
     fromOffset: bigint,
     maxBytes: bigint,
   ): Promise<JsReadEventsResponse>;
+  streamLength(streamId: bigint): Promise<bigint>;
   query(sql: string, params?: JsQueryParam[] | null): Promise<JsQueryResponse>;
   queryAt(
     sql: string,
@@ -484,6 +485,7 @@ export interface NativeKimberlitePooledClient {
     fromOffset: bigint,
     maxBytes: bigint,
   ): Promise<JsReadEventsResponse>;
+  streamLength(streamId: bigint): Promise<bigint>;
   query(sql: string, params?: JsQueryParam[] | null): Promise<JsQueryResponse>;
   queryAt(
     sql: string,

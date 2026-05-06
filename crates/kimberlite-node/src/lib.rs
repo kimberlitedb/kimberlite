@@ -922,6 +922,25 @@ impl KimberliteClient {
         })
     }
 
+    /// Returns the number of committed events on `stream_id`.
+    ///
+    /// O(1) — reads `StreamMetadata.current_offset` server-side. v0.8.0
+    /// — replaces full-stream walks for counting.
+    #[napi]
+    pub async fn stream_length(&self, stream_id: BigInt) -> Result<BigInt> {
+        let client = self.inner.clone();
+        let audit = self.audit_snapshot();
+        let sid = StreamId::from(stream_id.get_u64().1);
+
+        let length = spawn_blocking_with_audit(audit, move || {
+            let mut c = client.lock().expect("client mutex poisoned");
+            c.stream_length(sid)
+        })
+        .await?;
+
+        Ok(BigInt::from(length))
+    }
+
     /// Executes a SQL query against the server.
     #[napi]
     pub async fn query(
@@ -2114,6 +2133,7 @@ fn error_code_tag(code: ErrorCode) -> &'static str {
         ErrorCode::ErasureExempt => "ErasureExempt",
         ErrorCode::BreachNotFound => "BreachNotFound",
         ErrorCode::ExportNotFound => "ExportNotFound",
+        ErrorCode::UniqueConstraintViolation => "UniqueConstraintViolation",
     }
 }
 

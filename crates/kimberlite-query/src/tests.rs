@@ -134,6 +134,11 @@ impl ProjectionStore for MockStore {
     fn sync(&mut self) -> Result<(), StoreError> {
         Ok(())
     }
+
+    fn purge_table(&mut self, table: TableId) -> Result<(), StoreError> {
+        self.tables.remove(&table);
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -5511,6 +5516,10 @@ fn group_by_cardinality_cap_enforced() {
         }
 
         fn sync(&mut self) -> Result<(), StoreError> {
+            Ok(())
+        }
+
+        fn purge_table(&mut self, _: TableId) -> Result<(), StoreError> {
             Ok(())
         }
     }

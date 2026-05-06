@@ -107,11 +107,16 @@ where
                     .map_err(RuntimeError::Storage)?;
             }
 
-            Effect::WakeProjection { .. } | Effect::UpdateProjection { .. } => {
-                // Projection wakeup/update: notify the projection engine that new events
-                // are available. In production, this triggers async projection rebuilds.
-                // The runtime consumer should poll projection_pending() to check.
-            }
+            // Projection effects are no-ops for the in-memory runtime —
+            // wake/update would trigger async rebuilds in production, and
+            // ProjectionRowsPurge would clear the projection store via the
+            // facade layer (`kimberlite::execute_effects`). The in-memory
+            // tests do not assert on projection-store state across
+            // DROP+CREATE cycles, but the variants must be handled
+            // exhaustively.
+            Effect::WakeProjection { .. }
+            | Effect::UpdateProjection { .. }
+            | Effect::ProjectionRowsPurge { .. } => {}
 
             Effect::AuditLogAppend(action) => {
                 self.audit_log.push(action);

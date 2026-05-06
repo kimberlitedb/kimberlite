@@ -451,9 +451,17 @@ pub fn apply_committed(state: State, cmd: Command) -> Result<(State, Vec<Effect>
                 tenant_id,
                 table_id,
             });
+            // v0.8.0: purge projection-store rows so a subsequent
+            // CREATE TABLE with the same name starts empty. v0.7.0
+            // was metadata-only — see `tests/catalog_staleness.rs`
+            // and the v0.7.0 CHANGELOG known-issues entry.
+            effects.push(Effect::ProjectionRowsPurge {
+                tenant_id,
+                table_id,
+            });
 
-            // Postcondition: exactly 1 effect (drop metadata)
-            debug_assert_eq!(effects.len(), 1);
+            // Postcondition: exactly 2 effects (drop metadata + purge rows)
+            debug_assert_eq!(effects.len(), 2);
 
             let new_state = state.without_table(table_id);
 

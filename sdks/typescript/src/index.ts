@@ -68,6 +68,31 @@ export {
   applyCommand,
 } from './event-sourcing';
 export { Query } from './query-builder';
+export {
+  // v0.7.0 typed primitives — see typed-primitives.ts.
+  DateField,
+  TruncatableDateField,
+  Interval,
+  IntervalOverflowError,
+  SubstringRange,
+  AggregateMemoryBudget,
+  AggregateMemoryBudgetTooSmallError,
+  NANOS_PER_DAY,
+  AGGREGATE_BUDGET_MIN_BYTES,
+  AGGREGATE_BUDGET_DEFAULT_BYTES,
+  dateFieldKeyword,
+  extractFromSql,
+  dateTruncSql,
+  intervalFromComponents,
+  intervalFromMonths,
+  intervalFromDays,
+  intervalFromNanos,
+  intervalLiteral,
+  substringFromStart,
+  substringWithLength,
+  substringSql,
+  aggregateMemoryBudget,
+} from './typed-primitives';
 export { withRetry, DEFAULT_RETRY, RetryPolicy } from './retry';
 export {
   DomainError,
@@ -126,5 +151,6 @@ export {
   RateLimitedError,
   NotLeaderError,
   ServerError,
+  UniqueConstraintViolationError,
   ErrorCode,
 } from './errors';

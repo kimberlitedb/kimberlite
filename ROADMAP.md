@@ -40,10 +40,12 @@ criteria are all green.
 
 Items deferred from v0.7.0 (Go SDK Phase 1, plan-time time-fold
 production wiring, full driver implementations for the 16 v0.7.0
-scaffolded VOPR scenarios), plus the existing Deferred-section
-follow-ups whose pre-conditions land in v0.7.0 (snapshots gated on
-notebar benchmarks, materialised projections, expression indexes,
-spill-to-disk hash aggregate).
+scaffolded VOPR scenarios, pool metrics) plus the six SDK gaps
+notebar surfaced during its v0.7.0 migration. Folded into one
+minor release rather than splitting across a v0.7.1 patch — keeps
+release overhead in one cycle and lets the audit-wiring + DROP-
+TABLE-purge work (which need new wire frames / kernel effects)
+ship as first-class members.
 
 - [ ] **Go SDK — Phase 1.** `Connect`/`Query`/`Append`/`Read`/
       `Subscribe`/`Pool` over the existing FFI bridge. Scaffolding
@@ -68,6 +70,57 @@ spill-to-disk hash aggregate).
       because it touches the napi-rs binding layer. AWS ECS-friendly
       design: text-format `pool.metrics()` consumed by CloudWatch
       Prometheus source.
+- [ ] **Typed unique-constraint error.** New
+      `QueryError::DuplicatePrimaryKey { table, key }` variant +
+      `ErrorCode::UniqueConstraintViolation` + per-SDK error class
+      (TS `UniqueConstraintViolationError`, Python equivalent,
+      Rust `ClientError` + `DomainError` variant). Replaces try-
+      INSERT-then-SELECT recovery patterns. Notebar surfaced this
+      in `webhook-dedup.ts:60-68`. Kernel already has typed DDL
+      variants (`crates/kimberlite-kernel/src/kernel.rs:1371-1450`);
+      this extends parity into the DML INSERT path
+      (`crates/kimberlite/src/tenant.rs:1628`).
+- [ ] **`requestId` on `eraseSubject` `onStream` callback.**
+      Additive 2nd arg `(streamId, requestId)` on the TS callback
+      at `sdks/typescript/src/compliance.ts:471-486`; closes
+      notebar's empty-string placeholder in `erasure.ts:139`. Old
+      1-arg callbacks still type-check (TS allows fewer-arg
+      function assignment). Mirror in Python + Rust.
+- [ ] **Audit `verifyChain()` + `subscribe()` wiring.** Land
+      `VerifyAuditChainRequest` / `Response` and a cross-stream
+      Subscribe filter (or sibling `AuditSubscribeRequest`);
+      replace the TS stubs at
+      `sdks/typescript/src/compliance.ts:631-657`. Server-side
+      walks the `ComplianceAuditEvent.prev_hash` ⟶ `event_hash`
+      SHA-256 chain. Add Python + Rust SDK methods (currently
+      absent — `docs/reference/sdk/parity.md:87` flags all three
+      as `🚧 v0.7`). Update parity matrix to ✅.
+- [ ] **Projection-store row purge on DROP TABLE.** New
+      `Effect::ProjectionRowsPurge { tenant_id, table_id }` emitted
+      alongside `Effect::TableMetadataDrop` in
+      `crates/kimberlite-kernel/src/kernel.rs:434-477`. Implement
+      `ProjectionStore::purge_table(table_id)` in
+      `crates/kimberlite-store/src/lib.rs` and un-`#[ignore]`
+      `tests/catalog_staleness.rs::drop_does_not_yet_purge_projection_rows`.
+      v0.7.0 CHANGELOG documented this as a known issue.
+- [ ] **`streamLength(streamId)` primitive.** O(1) read of
+      `StreamMetadata.current_offset` (already tracked atomically
+      in the AppendBatch path at
+      `crates/kimberlite-kernel/src/kernel.rs:216-217`). Replaces
+      full-stream walks for counting; surfaced in every Group-1
+      site of the notebar codebase. Pre-flight check: reuse an
+      existing admin wire frame if `StreamInfoRequest` already
+      returns metadata; else add a minimal
+      `StreamLengthRequest`/`Response` pair.
+- [ ] **TS bindings for v0.7.0 typed primitives.** napi-rs
+      `#[napi(object)]` mirrors for `Interval`,
+      `AggregateMemoryBudget`, `SubstringRange` + string-tag
+      converter for `DateField` (TS string-literal union:
+      `"year" | "quarter" | "month" | "week" | "day" | "hour" |
+      "minute" | "second"`). Wire into `JsQueryParam` and
+      `JsQueryValue` so they round-trip as parameters and result
+      columns. Makes v0.7.0 typed primitives reachable from JS
+      without raw SQL. Notebar wishlist item.
 
 (Plus the items below carried forward from the v0.7.0 deferred
 section — re-evaluate at v0.8.0 cycle planning.)

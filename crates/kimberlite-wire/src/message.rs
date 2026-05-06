@@ -120,6 +120,12 @@ pub enum RequestPayload {
     QueryAt(QueryAtRequest),
     /// Read events from a stream.
     ReadEvents(ReadEventsRequest),
+    /// Get a stream's current length (event count) without paging events.
+    ///
+    /// v0.8.0 — replaces full-stream walks for counting, which notebar
+    /// hit on every Group-1 telemetry site. Reads
+    /// `StreamMetadata.current_offset` server-side; O(1).
+    StreamInfo(StreamInfoRequest),
     /// Subscribe to real-time events on a stream.
     Subscribe(SubscribeRequest),
     /// Sync all data to disk.
@@ -289,6 +295,18 @@ pub struct ReadEventsRequest {
     pub from_offset: Offset,
     /// Maximum bytes to read.
     pub max_bytes: u64,
+}
+
+/// Get a stream's current length without paging events.
+///
+/// Reads `StreamMetadata.current_offset` server-side and returns it as a
+/// `u64`. Saves callers from issuing a full-stream `ReadEvents` walk
+/// just to count rows. Future versions may grow additional metadata
+/// fields on the response (postcard tolerates additive fields).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamInfoRequest {
+    /// Target stream.
+    pub stream_id: StreamId,
 }
 
 /// Subscribe to real-time events on a stream.
@@ -1411,6 +1429,9 @@ pub enum ResponsePayload {
     QueryAt(QueryResponse),
     /// Read events response.
     ReadEvents(ReadEventsResponse),
+    /// Stream info response — `StreamInfoRequest` carrying the
+    /// stream's current length (event count). v0.8.0.
+    StreamInfo(StreamInfoResponse),
     /// Subscribe response (initial acknowledgment).
     Subscribe(SubscribeResponse),
     /// Sync response.
@@ -1558,6 +1579,13 @@ pub enum ErrorCode {
     BreachNotFound = 27,
     /// Export not found or already finalised.
     ExportNotFound = 28,
+    /// Duplicate primary-key value detected on INSERT.
+    ///
+    /// Distinguishes the most common DML constraint failure from the
+    /// generic `QueryExecutionError`, so SDK callers can map it to a
+    /// typed error class without parsing message strings. Notebar's
+    /// webhook-dedup loop is the canonical consumer.
+    UniqueConstraintViolation = 29,
 }
 
 /// Handshake response.
@@ -1618,6 +1646,19 @@ pub struct ReadEventsResponse {
     pub events: Vec<Vec<u8>>,
     /// Next offset to read from (for pagination).
     pub next_offset: Option<Offset>,
+}
+
+/// Response for [`StreamInfoRequest`] — current stream length.
+///
+/// `length` is the next-to-be-written offset on the stream, which is
+/// also the count of committed events (offsets are 0-indexed and
+/// monotonic). v0.8.0 — paired with the SDK-side `streamLength` /
+/// `stream_length` helper.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamInfoResponse {
+    /// Number of committed events on the stream. O(1) read of
+    /// `StreamMetadata.current_offset`.
+    pub length: u64,
 }
 
 /// Subscribe response (initial acknowledgment).

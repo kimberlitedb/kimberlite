@@ -743,6 +743,25 @@ impl TenantHandle {
         Ok(events)
     }
 
+    /// Returns the number of committed events on `stream_id`.
+    ///
+    /// O(1) read of `StreamMetadata.current_offset`. v0.8.0 — replaces
+    /// the full-stream `read_events` walk that callers like notebar
+    /// were using just to count.
+    pub fn stream_length(&self, stream_id: StreamId) -> Result<u64> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let meta = inner
+            .kernel_state
+            .get_stream(&stream_id)
+            .ok_or(KimberliteError::StreamNotFound(stream_id))?;
+        Ok(meta.current_offset.as_u64())
+    }
+
     // ========================================================================
     // DDL/DML Implementation Helpers
     // ========================================================================
@@ -1625,10 +1644,10 @@ impl TenantHandle {
                 .is_some()
             {
                 return Err(KimberliteError::Query(
-                    kimberlite_query::QueryError::ConstraintViolation(format!(
-                        "Duplicate primary key in table '{}': {:?}",
-                        insert.table, pk_values
-                    )),
+                    kimberlite_query::QueryError::DuplicatePrimaryKey {
+                        table: insert.table.clone(),
+                        key: pk_values,
+                    },
                 ));
             }
 
@@ -5518,18 +5537,21 @@ mod tests {
             .execute("INSERT INTO users (id, name) VALUES (1, 'Alice')", &[])
             .unwrap();
 
-        // Insert same id again - should fail with ConstraintViolation
+        // Insert same id again - should fail with DuplicatePrimaryKey
         let result = tenant.execute("INSERT INTO users (id, name) VALUES (1, 'Bob')", &[]);
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            matches!(
-                err,
-                KimberliteError::Query(kimberlite_query::QueryError::ConstraintViolation(_))
-            ),
-            "Expected ConstraintViolation, got {err:?}"
-        );
+        match err {
+            KimberliteError::Query(kimberlite_query::QueryError::DuplicatePrimaryKey {
+                ref table,
+                ref key,
+            }) => {
+                assert_eq!(table, "users");
+                assert_eq!(key, &vec![Value::BigInt(1)]);
+            }
+            other => panic!("Expected DuplicatePrimaryKey, got {other:?}"),
+        }
     }
 
     #[test]
@@ -5559,13 +5581,16 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            matches!(
-                err,
-                KimberliteError::Query(kimberlite_query::QueryError::ConstraintViolation(_))
-            ),
-            "Expected ConstraintViolation, got {err:?}"
-        );
+        match err {
+            KimberliteError::Query(kimberlite_query::QueryError::DuplicatePrimaryKey {
+                ref table,
+                ref key,
+            }) => {
+                assert_eq!(table, "users");
+                assert_eq!(key, &vec![Value::BigInt(1)]);
+            }
+            other => panic!("Expected DuplicatePrimaryKey, got {other:?}"),
+        }
 
         // Verify only the first new row (Bob) was inserted before the error
         let query_result = tenant.query("SELECT COUNT(*) FROM users", &[]).unwrap();

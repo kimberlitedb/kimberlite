@@ -9,7 +9,7 @@ use kimberlite_types::Timestamp;
 use kimberlite_wire::{
     AppendEventsResponse, CreateStreamResponse, ErrorCode, ErrorResponse, HandshakeResponse,
     PROTOCOL_VERSION, QueryParam, QueryResponse, QueryValue, ReadEventsResponse, Request,
-    RequestPayload, Response, ResponsePayload, SyncResponse,
+    RequestPayload, Response, ResponsePayload, StreamInfoResponse, SyncResponse,
 };
 use tracing::instrument;
 
@@ -312,6 +312,12 @@ impl RequestHandler {
                 })
             }
 
+            RequestPayload::StreamInfo(req) => {
+                tracing::Span::current().record("op", "stream_info");
+                let length = tenant.stream_length(req.stream_id)?;
+                ResponsePayload::StreamInfo(StreamInfoResponse { length })
+            }
+
             RequestPayload::Sync(_) => {
                 tracing::Span::current().record("op", "sync");
                 self.kimberlite().sync()?;
@@ -541,7 +547,16 @@ fn error_to_wire(error: &ServerError) -> (ErrorCode, String) {
             kimberlite::KimberliteError::ProjectionLag { .. } => {
                 (ErrorCode::ProjectionLag, e.to_string())
             }
-            kimberlite::KimberliteError::Query(qe) => (ErrorCode::QueryParseError, qe.to_string()),
+            kimberlite::KimberliteError::Query(qe) => match qe {
+                kimberlite_query::QueryError::DuplicatePrimaryKey { .. } => {
+                    (ErrorCode::UniqueConstraintViolation, qe.to_string())
+                }
+                kimberlite_query::QueryError::ParseError(_)
+                | kimberlite_query::QueryError::SqlTooComplex { .. } => {
+                    (ErrorCode::QueryParseError, qe.to_string())
+                }
+                _ => (ErrorCode::QueryExecutionError, qe.to_string()),
+            },
             kimberlite::KimberliteError::Storage(_) | kimberlite::KimberliteError::Store(_) => {
                 (ErrorCode::StorageError, e.to_string())
             }

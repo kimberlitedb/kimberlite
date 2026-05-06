@@ -63,6 +63,18 @@ pub enum Effect {
         table_id: TableId,
     },
 
+    /// Purge all projection-store rows for a dropped table.
+    ///
+    /// Emitted alongside [`Self::TableMetadataDrop`] so a subsequent
+    /// `CREATE TABLE` with the same name (and therefore the same
+    /// `TableId`, since `TableId = hash(tenant, name)`) doesn't observe
+    /// stale rows from the previous incarnation. v0.7.0 was metadata-
+    /// only — this effect closes the documented gap.
+    ProjectionRowsPurge {
+        tenant_id: TenantId,
+        table_id: TableId,
+    },
+
     /// Persist index metadata after CREATE INDEX.
     IndexMetadataWrite(IndexMetadata),
 

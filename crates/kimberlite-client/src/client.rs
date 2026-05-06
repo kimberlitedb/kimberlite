@@ -23,10 +23,11 @@ use kimberlite_wire::{
     ListTablesRequest, MaskingPolicyListRequest, MaskingPolicyListResponse, Message,
     PROTOCOL_VERSION, PortabilityExportInfo, Push, QueryAtRequest, QueryParam, QueryRequest,
     QueryResponse, ReadEventsRequest, ReadEventsResponse, Request, RequestId, RequestPayload,
-    Response, ResponsePayload, ServerInfoResponse, SubscribeCreditRequest, SubscribeRequest,
-    SubscribeResponse, SyncRequest, TableInfo, TenantCreateRequest, TenantCreateResponse,
-    TenantDeleteRequest, TenantDeleteResponse, TenantGetRequest, TenantInfo, TenantListRequest,
-    UnsubscribeRequest, VerifyExportRequest, VerifyExportResponse,
+    Response, ResponsePayload, ServerInfoResponse, StreamInfoRequest, StreamInfoResponse,
+    SubscribeCreditRequest, SubscribeRequest, SubscribeResponse, SyncRequest, TableInfo,
+    TenantCreateRequest, TenantCreateResponse, TenantDeleteRequest, TenantDeleteResponse,
+    TenantGetRequest, TenantInfo, TenantListRequest, UnsubscribeRequest, VerifyExportRequest,
+    VerifyExportResponse,
 };
 
 // Re-export for admin callers.
@@ -1640,6 +1641,25 @@ impl Client {
             ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
             other => Err(ClientError::UnexpectedResponse {
                 expected: "BreachResolve".to_string(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    /// Returns the number of committed events on `stream_id`.
+    ///
+    /// O(1) read of the server-side `StreamMetadata.current_offset`.
+    /// Saves callers from issuing a full-stream `read_events` walk
+    /// just to count rows. v0.8.0.
+    pub fn stream_length(&mut self, stream_id: StreamId) -> ClientResult<u64> {
+        match self
+            .send_request(RequestPayload::StreamInfo(StreamInfoRequest { stream_id }))?
+            .payload
+        {
+            ResponsePayload::StreamInfo(StreamInfoResponse { length }) => Ok(length),
+            ResponsePayload::Error(e) => Err(ClientError::server(e.code, e.message)),
+            other => Err(ClientError::UnexpectedResponse {
+                expected: "StreamInfo".to_string(),
                 actual: format!("{other:?}"),
             }),
         }

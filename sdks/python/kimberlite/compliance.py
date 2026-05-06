@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ctypes
 import functools
+import inspect
 import json
 from dataclasses import dataclass
 from datetime import datetime
@@ -36,6 +37,34 @@ def _with_audit(fn: F) -> F:
             return fn(*args, **kwargs)
 
     return cast(F, _wrapped)
+
+
+def _callback_accepts_request_id(cb: Callable[..., Any]) -> bool:
+    """True if ``cb`` can accept the v0.8.0 ``(stream_id, request_id)``
+    signature.
+
+    Lets the orchestrator stay backward-compatible with legacy 1-arg
+    ``on_stream`` callbacks by inspecting their declared positional
+    arity. C-implemented callables (no signature available) fall back
+    to the conservative 1-arg shape.
+    """
+    try:
+        sig = inspect.signature(cb)
+    except (TypeError, ValueError):
+        return False
+    positional = [
+        p
+        for p in sig.parameters.values()
+        if p.kind
+        in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.VAR_POSITIONAL,
+        )
+    ]
+    if any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in positional):
+        return True
+    return len(positional) >= 2
 
 
 # --- Consent types --------------------------------------------------------
@@ -452,8 +481,18 @@ class _ErasureNamespace:
         affected = list(streams) if streams is not None else list(pending._inner.streams_affected)
         in_progress = self.mark_progress_typed(pending, affected)
         recording: Any = in_progress
+        # v0.8.0: surface the requestId to the per-stream callback so
+        # callers can correlate shred-event audit records. Detect arity
+        # so legacy 1-arg callbacks still work without modification.
+        request_id = pending._inner.request_id
+        accepts_request_id = on_stream is not None and _callback_accepts_request_id(on_stream)
         for sid in affected:
-            erased = on_stream(sid) if on_stream else 0
+            if on_stream is None:
+                erased = 0
+            elif accepts_request_id:
+                erased = on_stream(sid, request_id)
+            else:
+                erased = on_stream(sid)
             recording = self.mark_stream_erased_typed(recording, sid, erased)
         return self.complete_typed(recording)
 
