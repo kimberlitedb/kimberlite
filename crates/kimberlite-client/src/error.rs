@@ -172,6 +172,21 @@ impl ClientError {
             }
         )
     }
+
+    /// True if an INSERT failed because the row's primary key already exists.
+    ///
+    /// Lets callers replace try-INSERT-then-SELECT recovery patterns with a
+    /// single typed `match` arm. The duplicate key tuple is encoded in the
+    /// server-side message string when callers need it.
+    pub fn is_unique_constraint_violation(&self) -> bool {
+        matches!(
+            self,
+            Self::Server {
+                code: ErrorCode::UniqueConstraintViolation,
+                ..
+            }
+        )
+    }
 }
 
 #[cfg(test)]

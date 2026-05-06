@@ -1523,6 +1523,13 @@ pub enum ErrorCode {
     BreachNotFound = 27,
     /// Export not found or already finalised.
     ExportNotFound = 28,
+    /// Duplicate primary-key value detected on INSERT.
+    ///
+    /// Distinguishes the most common DML constraint failure from the
+    /// generic `QueryExecutionError`, so SDK callers can map it to a
+    /// typed error class without parsing message strings. Notebar's
+    /// webhook-dedup loop is the canonical consumer.
+    UniqueConstraintViolation = 29,
 }
 
 /// Handshake response.

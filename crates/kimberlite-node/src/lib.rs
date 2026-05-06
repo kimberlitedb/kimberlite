@@ -2083,6 +2083,7 @@ fn error_code_tag(code: ErrorCode) -> &'static str {
         ErrorCode::ErasureExempt => "ErasureExempt",
         ErrorCode::BreachNotFound => "BreachNotFound",
         ErrorCode::ExportNotFound => "ExportNotFound",
+        ErrorCode::UniqueConstraintViolation => "UniqueConstraintViolation",
     }
 }
 

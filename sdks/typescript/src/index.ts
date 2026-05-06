@@ -126,5 +126,6 @@ export {
   RateLimitedError,
   NotLeaderError,
   ServerError,
+  UniqueConstraintViolationError,
   ErrorCode,
 } from './errors';

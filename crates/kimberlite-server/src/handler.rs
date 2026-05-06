@@ -541,7 +541,16 @@ fn error_to_wire(error: &ServerError) -> (ErrorCode, String) {
             kimberlite::KimberliteError::ProjectionLag { .. } => {
                 (ErrorCode::ProjectionLag, e.to_string())
             }
-            kimberlite::KimberliteError::Query(qe) => (ErrorCode::QueryParseError, qe.to_string()),
+            kimberlite::KimberliteError::Query(qe) => match qe {
+                kimberlite_query::QueryError::DuplicatePrimaryKey { .. } => {
+                    (ErrorCode::UniqueConstraintViolation, qe.to_string())
+                }
+                kimberlite_query::QueryError::ParseError(_)
+                | kimberlite_query::QueryError::SqlTooComplex { .. } => {
+                    (ErrorCode::QueryParseError, qe.to_string())
+                }
+                _ => (ErrorCode::QueryExecutionError, qe.to_string()),
+            },
             kimberlite::KimberliteError::Storage(_) | kimberlite::KimberliteError::Store(_) => {
                 (ErrorCode::StorageError, e.to_string())
             }

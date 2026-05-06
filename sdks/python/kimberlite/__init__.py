@@ -45,6 +45,7 @@ from .errors import (
     QueryExecutionError,
     InternalError,
     ClusterUnavailableError,
+    UniqueConstraintViolationError,
 )
 
 __version__ = "0.6.0"
@@ -89,4 +90,5 @@ __all__ = [
     "QueryExecutionError",
     "InternalError",
     "ClusterUnavailableError",
+    "UniqueConstraintViolationError",
 ]
