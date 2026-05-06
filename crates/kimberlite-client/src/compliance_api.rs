@@ -110,6 +110,14 @@ impl ConsentApi<'_> {
     }
 }
 
+/// Per-stream erasure callback invoked once per affected stream
+/// during [`ErasureApi::erase_subject`] / [`ErasureApi::erase_subject_with_streams`].
+/// Receives `(stream_id, request_id)` and returns the row count erased.
+///
+/// **v0.8.0** — gained the `request_id` argument so callers can
+/// correlate stream-level work with the parent erasure request.
+pub type EraseSubjectStreamCb = Box<dyn FnMut(StreamId, &str) -> ClientResult<u64>>;
+
 /// GDPR Article 17 right-to-erasure operations.
 pub struct ErasureApi<'a> {
     client: &'a mut Client,
@@ -232,7 +240,7 @@ impl ErasureApi<'_> {
     pub fn erase_subject(
         &mut self,
         subject_id: &str,
-        on_stream: Option<Box<dyn FnMut(StreamId, &str) -> ClientResult<u64>>>,
+        on_stream: Option<EraseSubjectStreamCb>,
     ) -> ClientResult<ErasureAuditInfo> {
         self.erase_subject_impl(subject_id, on_stream, None)
     }
@@ -244,7 +252,7 @@ impl ErasureApi<'_> {
         &mut self,
         subject_id: &str,
         streams: Vec<StreamId>,
-        on_stream: Option<Box<dyn FnMut(StreamId, &str) -> ClientResult<u64>>>,
+        on_stream: Option<EraseSubjectStreamCb>,
     ) -> ClientResult<ErasureAuditInfo> {
         self.erase_subject_impl(subject_id, on_stream, Some(streams))
     }
@@ -256,7 +264,7 @@ impl ErasureApi<'_> {
     fn erase_subject_impl(
         &mut self,
         subject_id: &str,
-        mut on_stream: Option<Box<dyn FnMut(StreamId, &str) -> ClientResult<u64>>>,
+        mut on_stream: Option<EraseSubjectStreamCb>,
         streams_override: Option<Vec<StreamId>>,
     ) -> ClientResult<ErasureAuditInfo> {
         let pending = self.request_typed(subject_id)?;
