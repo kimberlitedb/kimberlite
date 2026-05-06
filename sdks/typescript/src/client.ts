@@ -279,6 +279,22 @@ export class Client {
     }
   }
 
+  /**
+   * Returns the number of committed events on `streamId`.
+   *
+   * O(1) — reads `StreamMetadata.current_offset` server-side. Replaces
+   * the full-stream {@link Client.readAll} walk that callers were
+   * using purely to count rows. v0.8.0.
+   *
+   * @example
+   * ```ts
+   * const count = await client.streamLength(streamId);
+   * ```
+   */
+  async streamLength(streamId: StreamId): Promise<bigint> {
+    return this.invoke((n) => n.streamLength(streamId));
+  }
+
   /** Execute a SQL query against current state. */
   async query(sql: string, params: Value[] = []): Promise<QueryResult> {
     const resp = await this.invoke((n) => n.query(sql, params.map(valueToNativeParam)));

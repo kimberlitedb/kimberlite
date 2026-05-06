@@ -9,7 +9,7 @@ use kimberlite_types::Timestamp;
 use kimberlite_wire::{
     AppendEventsResponse, CreateStreamResponse, ErrorCode, ErrorResponse, HandshakeResponse,
     PROTOCOL_VERSION, QueryParam, QueryResponse, QueryValue, ReadEventsResponse, Request,
-    RequestPayload, Response, ResponsePayload, SyncResponse,
+    RequestPayload, Response, ResponsePayload, StreamInfoResponse, SyncResponse,
 };
 use tracing::instrument;
 
@@ -310,6 +310,12 @@ impl RequestHandler {
                     events: events.into_iter().map(|b| b.to_vec()).collect(),
                     next_offset,
                 })
+            }
+
+            RequestPayload::StreamInfo(req) => {
+                tracing::Span::current().record("op", "stream_info");
+                let length = tenant.stream_length(req.stream_id)?;
+                ResponsePayload::StreamInfo(StreamInfoResponse { length })
             }
 
             RequestPayload::Sync(_) => {

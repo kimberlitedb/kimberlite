@@ -743,6 +743,25 @@ impl TenantHandle {
         Ok(events)
     }
 
+    /// Returns the number of committed events on `stream_id`.
+    ///
+    /// O(1) read of `StreamMetadata.current_offset`. v0.8.0 — replaces
+    /// the full-stream `read_events` walk that callers like notebar
+    /// were using just to count.
+    pub fn stream_length(&self, stream_id: StreamId) -> Result<u64> {
+        let inner = self
+            .db
+            .inner()
+            .read()
+            .map_err(|_| KimberliteError::internal("lock poisoned"))?;
+
+        let meta = inner
+            .kernel_state
+            .get_stream(&stream_id)
+            .ok_or(KimberliteError::StreamNotFound(stream_id))?;
+        Ok(meta.current_offset.as_u64())
+    }
+
     // ========================================================================
     // DDL/DML Implementation Helpers
     // ========================================================================
