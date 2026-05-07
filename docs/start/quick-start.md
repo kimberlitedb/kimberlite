@@ -24,7 +24,7 @@ kimberlite init
 The wizard walks you through project setup with diamond-styled prompts:
 
 ```
-  ◆  Kimberlite  v0.4.0
+  ◆  Kimberlite  v0.8.0
   │
   │  The compliance-first database
   │

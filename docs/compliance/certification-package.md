@@ -588,7 +588,7 @@ A: Certificates are signed by our CI system (GitHub Actions) using an Ed25519 pr
 - Uptime: operator-dependent (self-hosted; no published SLA yet)
 - Change success rate: tracked per deployment
 
-**Readiness (modelling / substrate):** designed-for SOC 2 Trust Services Criteria; no SOC 2 Type II audit has been completed as of v0.4. Third-party audit is a ROADMAP.md v1.0 target.
+**Readiness (modelling / substrate):** designed-for SOC 2 Trust Services Criteria; no SOC 2 Type II audit has been completed as of v0.8. Third-party audit is a ROADMAP.md v1.0 target.
 
 ### PCI DSS (Payment Cards)
 

@@ -7,13 +7,17 @@ order: 4
 
 # Go Client
 
-> **Status: Deferred post-v0.4 launch.** The Go SDK has skeleton code in
+> **Status: Phase 1 planned for v0.9.0.** The Go SDK has skeleton code in
 > [`sdks/go/`](https://github.com/kimberlitedb/kimberlite/tree/main/sdks/go)
-> but is not functionally wired up yet. The API sketch below shows the
-> intended surface; treat it as a proposal, not an installable package.
+> but is not functionally wired up yet. The API sketch below is forward-
+> looking — treat it as a proposal, not an installable package. Some
+> primitives shown here (multi-statement transactions, `Begin`/`Commit`/
+> `Rollback`) are not in the scope of Phase 1; see [SQL DML reference](/docs/reference/sql/dml)
+> for the current transaction story.
 >
 > For production use today, see the [Rust](./rust), [Python](./python), or
-> [TypeScript](./typescript) clients. If you need Go specifically, please
+> [TypeScript](./typescript) clients — all three are at parity for the
+> data plane and compliance surface. If you need Go specifically, please
 > open an issue so we can prioritise it based on demand.
 
 Build Kimberlite applications in Go with simplicity and performance.

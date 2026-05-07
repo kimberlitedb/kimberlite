@@ -116,6 +116,60 @@ impl ArchitectureTemplate {
     }
 }
 
+/// FAQ page template.
+#[derive(Template, WebTemplate)]
+#[template(path = "faq.html")]
+pub struct FaqTemplate {
+    pub title: String,
+    /// Build version for cache busting static assets.
+    pub v: &'static str,
+}
+
+impl FaqTemplate {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            v: BUILD_VERSION,
+        }
+    }
+}
+
+/// Healthcare vertical landing page template.
+#[derive(Template, WebTemplate)]
+#[template(path = "healthcare.html")]
+pub struct HealthcareTemplate {
+    pub title: String,
+    /// Build version for cache busting static assets.
+    pub v: &'static str,
+}
+
+impl HealthcareTemplate {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            v: BUILD_VERSION,
+        }
+    }
+}
+
+/// Finance vertical landing page template.
+#[derive(Template, WebTemplate)]
+#[template(path = "finance.html")]
+pub struct FinanceTemplate {
+    pub title: String,
+    /// Build version for cache busting static assets.
+    pub v: &'static str,
+}
+
+impl FinanceTemplate {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            v: BUILD_VERSION,
+        }
+    }
+}
+
 /// A link in the sidebar navigation.
 pub struct SidebarLink {
     pub title: String,

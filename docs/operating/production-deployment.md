@@ -34,11 +34,11 @@ order: 2
 **Kimberlite** is a compliance-first database designed for regulated industries, with a multi-layer verification stack. This guide covers production-grade deployment with emphasis on:
 
 1. **Verification:** ~91 Kani proofs (PR-gated), ~25 TLA+ core theorems (TLC PR-gated; TLAPS nightly), Coq crypto proofs, 74 VOPR scenario variants (~50 substantive)
-2. **Compliance substrate:** HIPAA-ready (audit trail, encryption, access control, retention), SOC 2-ready (monitoring, change management, logical access), GDPR-ready (Art. 17 erasure, Art. 20 portability, Art. 6/7 consent), PCI DSS-ready (encryption, key management). **No third-party audits or certifications have been completed as of v0.4** — audit and attestation are ROADMAP.md v1.0 targets.
+2. **Compliance substrate:** HIPAA-aligned (audit trail, encryption, access control, retention), SOC 2-aligned (monitoring, change management, logical access), GDPR-aligned (Art. 17 erasure, Art. 20 portability, Art. 6/7 consent), PCI DSS-aligned (encryption, key management). **Kimberlite ships the primitives that enable these compliance regimes; no third-party audits or attestations have been completed as of v0.8** — SOC 2 Type II, HIPAA attestation, and FedRAMP authorization are ROADMAP.md v1.0 gates.
 3. **Zero-downtime operations:** Rolling upgrades, cluster reconfiguration, standby replicas
 4. **Operational maturity:** Monitoring, backup/DR, incident response
 
-> ⚠️ **v0.4 is Developer Preview.** Phase 6 compliance endpoints (breach notification, audit query, subject export) are SDK stubs returning `NotImplemented` until v0.5.0 server handlers ship; see [SDK parity matrix](../reference/sdk/parity.md). Production deployment at this stage requires operator expertise in self-hosted, non-audited systems.
+> ⚠️ **v0.8.0 is Developer Preview.** Single-node deployments are stable; multi-node VSR is implemented and PR-gated against TLA+ specs but the cluster crate is marked "not ready for public use" — see [ROADMAP.md](../../ROADMAP.md) for the v1.0 production-readiness gates. Phase 6 compliance endpoints (breach notification, audit query, subject export, masking policy CRUD, `audit.verifyChain` server-walked) are end-to-end on Rust + TypeScript; Python parity for `audit.verifyChain` / `audit.subscribe` lands in v0.9.0. See the [SDK parity matrix](../reference/sdk/parity.md) for the per-SDK status.
 
 ### Key Design Principles
 
@@ -337,7 +337,7 @@ spec:
 
       containers:
         - name: kimberlite
-          image: kimberlite/server:v0.4.0
+          image: kimberlite/server:v0.8.0
           ports:
             - containerPort: 7000  # Cluster replication
               name: cluster
@@ -415,7 +415,7 @@ version: '3.9'
 
 services:
   replica-0:
-    image: kimberlite/server:v0.4.0
+    image: kimberlite/server:v0.8.0
     container_name: kimberlite-replica-0
     environment:
       - KIMBERLITE_REPLICA_ID=0
@@ -431,7 +431,7 @@ services:
       - kimberlite
 
   replica-1:
-    image: kimberlite/server:v0.4.0
+    image: kimberlite/server:v0.8.0
     container_name: kimberlite-replica-1
     environment:
       - KIMBERLITE_REPLICA_ID=1
@@ -447,7 +447,7 @@ services:
       - kimberlite
 
   replica-2:
-    image: kimberlite/server:v0.4.0
+    image: kimberlite/server:v0.8.0
     container_name: kimberlite-replica-2
     environment:
       - KIMBERLITE_REPLICA_ID=2

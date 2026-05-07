@@ -283,15 +283,34 @@ fn wrap_with_aggregate(
     })
 }
 
-/// Plans a parsed SELECT statement.
+/// Plans a parsed SELECT statement. Samples the system clock once and
+/// folds `NOW()` / `CURRENT_TIMESTAMP` / `CURRENT_DATE` sentinels into
+/// literals before returning, so the executor never sees a raw
+/// sentinel and stays pure (PRESSURECRAFT §1 FCIS). Callers that need
+/// a deterministic clock (VOPR, replay) should use
+/// [`plan_query_with_clock`] and pass their own timestamp.
 pub fn plan_query(schema: &Schema, parsed: &ParsedSelect, params: &[Value]) -> Result<QueryPlan> {
-    if parsed.joins.is_empty() {
+    plan_query_with_clock(schema, parsed, params, current_statement_timestamp_ns())
+}
+
+/// Plans a parsed SELECT statement with an explicit statement-stable
+/// timestamp. Use this from VOPR / replay / any path that requires
+/// determinism. AUDIT-2026-05 S3.7.
+pub fn plan_query_with_clock(
+    schema: &Schema,
+    parsed: &ParsedSelect,
+    params: &[Value],
+    statement_ts_ns: i64,
+) -> Result<QueryPlan> {
+    let mut plan = if parsed.joins.is_empty() {
         // Single-table query - existing logic
-        plan_single_table_query(schema, parsed, params)
+        plan_single_table_query(schema, parsed, params)?
     } else {
         // Multi-table query - new JOIN logic
-        plan_join_query(schema, parsed, params)
-    }
+        plan_join_query(schema, parsed, params)?
+    };
+    fold_time_constants_in_plan(&mut plan, statement_ts_ns);
+    Ok(plan)
 }
 
 /// Plans a single-table query (no JOINs).
@@ -1243,6 +1262,162 @@ fn resolve_value(val: &PredicateValue, params: &[Value]) -> Result<Value> {
     }
 }
 
+/// Sample the system clock for a fresh statement-stable timestamp in
+/// Unix nanoseconds. Lives at the planner boundary on purpose — the
+/// evaluator stays pure (PRESSURECRAFT §1 FCIS), so the clock read is
+/// done once per statement, threaded into the plan, and never sampled
+/// inside row evaluation.
+///
+/// Returns `0` if the system clock is somehow before the Unix epoch;
+/// callers can override with their own clock for deterministic VOPR
+/// runs by calling [`fold_time_constants_in_plan`] directly.
+pub fn current_statement_timestamp_ns() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos().min(i64::MAX as u128) as i64)
+        .unwrap_or(0)
+}
+
+/// Convert a Unix-nanosecond timestamp to "days since Unix epoch"
+/// (truncating toward negative infinity for pre-epoch values, though
+/// the evaluator guards against negatives).
+fn ns_to_days_since_epoch(ts_ns: i64) -> i32 {
+    let days = ts_ns.div_euclid(86_400_000_000_000);
+    let clamped = days.clamp(i64::from(i32::MIN), i64::from(i32::MAX));
+    // Clamp guarantees the value fits in i32; the cast is lossless by
+    // construction.
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        clamped as i32
+    }
+}
+
+/// Walk a `ScalarExpr` tree and replace `ScalarExpr::Now` /
+/// `CurrentTimestamp` with a `Literal(Timestamp(statement_ts_ns))` and
+/// `CurrentDate` with `Literal(Date(days_since_epoch))`. The same
+/// `statement_ts_ns` value MUST be used for every fold call within a
+/// single statement so that two `NOW()` references in the same query
+/// return identical timestamps (SQL standard: statement-stable).
+///
+/// Pure function. Called from [`fold_time_constants_in_plan`] and any
+/// site that needs to stabilise scalar-expression trees before
+/// evaluation. The companion `#[should_panic]` tests in
+/// `expression.rs` (`now_panics_at_evaluator_when_unfolded` etc.)
+/// remain the contract that the evaluator never sees a raw sentinel.
+///
+/// AUDIT-2026-05 S3.7 (planner-side completion of the fold contract
+/// promised in v0.7.0).
+pub fn fold_time_constants(expr: &ScalarExpr, statement_ts_ns: i64) -> ScalarExpr {
+    fn f(e: &ScalarExpr, ts: i64) -> ScalarExpr {
+        match e {
+            ScalarExpr::Now | ScalarExpr::CurrentTimestamp => ScalarExpr::Literal(
+                Value::Timestamp(kimberlite_types::Timestamp::from_nanos(ts.max(0) as u64)),
+            ),
+            ScalarExpr::CurrentDate => ScalarExpr::Literal(Value::Date(ns_to_days_since_epoch(ts))),
+            // Recurse into operands so nested time-now references
+            // (e.g. `EXTRACT(YEAR FROM NOW())`) are also folded.
+            ScalarExpr::Literal(v) => ScalarExpr::Literal(v.clone()),
+            ScalarExpr::Column(c) => ScalarExpr::Column(c.clone()),
+            ScalarExpr::Upper(x) => ScalarExpr::Upper(Box::new(f(x, ts))),
+            ScalarExpr::Lower(x) => ScalarExpr::Lower(Box::new(f(x, ts))),
+            ScalarExpr::Length(x) => ScalarExpr::Length(Box::new(f(x, ts))),
+            ScalarExpr::Trim(x) => ScalarExpr::Trim(Box::new(f(x, ts))),
+            ScalarExpr::Concat(xs) => ScalarExpr::Concat(xs.iter().map(|x| f(x, ts)).collect()),
+            ScalarExpr::Abs(x) => ScalarExpr::Abs(Box::new(f(x, ts))),
+            ScalarExpr::Round(x) => ScalarExpr::Round(Box::new(f(x, ts))),
+            ScalarExpr::RoundScale(x, n) => ScalarExpr::RoundScale(Box::new(f(x, ts)), *n),
+            ScalarExpr::Ceil(x) => ScalarExpr::Ceil(Box::new(f(x, ts))),
+            ScalarExpr::Floor(x) => ScalarExpr::Floor(Box::new(f(x, ts))),
+            ScalarExpr::Coalesce(xs) => ScalarExpr::Coalesce(xs.iter().map(|x| f(x, ts)).collect()),
+            ScalarExpr::Nullif(a, b) => ScalarExpr::Nullif(Box::new(f(a, ts)), Box::new(f(b, ts))),
+            ScalarExpr::Cast(x, t) => ScalarExpr::Cast(Box::new(f(x, ts)), *t),
+            ScalarExpr::Mod(a, b) => ScalarExpr::Mod(Box::new(f(a, ts)), Box::new(f(b, ts))),
+            ScalarExpr::Power(a, b) => ScalarExpr::Power(Box::new(f(a, ts)), Box::new(f(b, ts))),
+            ScalarExpr::Sqrt(x) => ScalarExpr::Sqrt(Box::new(f(x, ts))),
+            ScalarExpr::Substring(x, r) => ScalarExpr::Substring(Box::new(f(x, ts)), *r),
+            ScalarExpr::Extract(field, x) => ScalarExpr::Extract(*field, Box::new(f(x, ts))),
+            ScalarExpr::DateTrunc(field, x) => ScalarExpr::DateTrunc(*field, Box::new(f(x, ts))),
+        }
+    }
+    f(expr, statement_ts_ns)
+}
+
+/// Walk a [`Filter`] tree and fold any embedded [`ScalarExpr::Now`] /
+/// `CurrentTimestamp` / `CurrentDate` sentinels. Called from
+/// [`fold_time_constants_in_plan`].
+fn fold_time_constants_in_filter(filter: &mut crate::plan::Filter, statement_ts_ns: i64) {
+    use crate::plan::{Filter, FilterOp};
+    match filter {
+        Filter::Condition(cond) => {
+            if let FilterOp::ScalarCmp { lhs, rhs, .. } = &mut cond.op {
+                *lhs = fold_time_constants(lhs, statement_ts_ns);
+                *rhs = fold_time_constants(rhs, statement_ts_ns);
+            }
+        }
+        Filter::And(parts) | Filter::Or(parts) => {
+            for p in parts {
+                fold_time_constants_in_filter(p, statement_ts_ns);
+            }
+        }
+    }
+}
+
+/// Walk a [`QueryPlan`] tree and fold every embedded `NOW()` /
+/// `CURRENT_TIMESTAMP` / `CURRENT_DATE` sentinel into a literal,
+/// using a single statement-stable timestamp. Mutates the plan in
+/// place. The evaluator can then run pure (no clock read), and two
+/// `NOW()` references in the same statement return identical values
+/// per the SQL standard.
+///
+/// This is the production wiring of the contract that v0.7.0
+/// established: the AST carries `ScalarExpr::Now` / `CurrentTimestamp`
+/// / `CurrentDate` sentinels, the evaluator panics if it sees them
+/// raw, and this function is the planner-side pass that replaces
+/// them. AUDIT-2026-05 S3.7.
+pub fn fold_time_constants_in_plan(plan: &mut QueryPlan, statement_ts_ns: i64) {
+    match plan {
+        QueryPlan::PointLookup { .. } => {
+            // No scalar expressions in this shape.
+        }
+        QueryPlan::RangeScan { filter, .. }
+        | QueryPlan::IndexScan { filter, .. }
+        | QueryPlan::TableScan { filter, .. } => {
+            if let Some(f) = filter {
+                fold_time_constants_in_filter(f, statement_ts_ns);
+            }
+        }
+        QueryPlan::Aggregate {
+            source,
+            aggregate_filters,
+            ..
+        } => {
+            fold_time_constants_in_plan(source, statement_ts_ns);
+            for af in aggregate_filters.iter_mut().flatten() {
+                fold_time_constants_in_filter(af, statement_ts_ns);
+            }
+        }
+        QueryPlan::Join { left, right, .. } => {
+            fold_time_constants_in_plan(left, statement_ts_ns);
+            fold_time_constants_in_plan(right, statement_ts_ns);
+        }
+        QueryPlan::Materialize {
+            source,
+            filter,
+            scalar_columns,
+            ..
+        } => {
+            fold_time_constants_in_plan(source, statement_ts_ns);
+            if let Some(f) = filter {
+                fold_time_constants_in_filter(f, statement_ts_ns);
+            }
+            for sc in scalar_columns {
+                sc.expr = fold_time_constants(&sc.expr, statement_ts_ns);
+            }
+        }
+    }
+}
+
 /// Walk a `ScalarExpr` tree and replace any `Literal(Placeholder(n))`
 /// with the bound parameter value. Leaves other `Literal` variants
 /// and column references untouched. Mirrors `resolve_value` but for
@@ -2059,5 +2234,163 @@ mod tests {
             &Bound::Included(k_high),
             &Bound::Included(k_low),
         ));
+    }
+
+    // ============================================================================
+    // AUDIT-2026-05 S3.7 — fold_time_constants production wiring tests.
+    //
+    // Companion to the `#[should_panic]` tests in `expression.rs` that
+    // pin the contract "evaluator panics on raw NOW/CURRENT_TIMESTAMP/
+    // CURRENT_DATE." These tests prove the planner-side fold pass
+    // actually replaces the sentinels with literals so the evaluator
+    // never sees them.
+    // ============================================================================
+
+    #[test]
+    fn fold_time_constants_replaces_now_with_timestamp_literal() {
+        let ts_ns = 1_746_316_800_i64 * 1_000_000_000; // 2025-05-04T00:00:00Z
+        let folded = fold_time_constants(&ScalarExpr::Now, ts_ns);
+        match folded {
+            ScalarExpr::Literal(Value::Timestamp(t)) => {
+                assert_eq!(t.as_nanos() as i64, ts_ns);
+            }
+            other => panic!("expected Literal(Timestamp), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_time_constants_replaces_current_timestamp() {
+        let ts_ns = 1_746_316_800_i64 * 1_000_000_000;
+        let folded = fold_time_constants(&ScalarExpr::CurrentTimestamp, ts_ns);
+        match folded {
+            ScalarExpr::Literal(Value::Timestamp(t)) => {
+                assert_eq!(t.as_nanos() as i64, ts_ns);
+            }
+            other => panic!("expected Literal(Timestamp), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_time_constants_replaces_current_date_with_days_since_epoch() {
+        // 2025-05-04T00:00:00Z = 20212 days since epoch.
+        let ts_ns = 1_746_316_800_i64 * 1_000_000_000;
+        let folded = fold_time_constants(&ScalarExpr::CurrentDate, ts_ns);
+        match folded {
+            ScalarExpr::Literal(Value::Date(days)) => {
+                assert_eq!(days, 20_212);
+            }
+            other => panic!("expected Literal(Date), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_time_constants_recurses_into_operands() {
+        // EXTRACT(YEAR FROM NOW()) — fold must descend into the inner
+        // operand so the EXTRACT evaluator sees a Timestamp literal.
+        let ts_ns = 1_746_316_800_i64 * 1_000_000_000;
+        let expr =
+            ScalarExpr::Extract(kimberlite_types::DateField::Year, Box::new(ScalarExpr::Now));
+        let folded = fold_time_constants(&expr, ts_ns);
+        match folded {
+            ScalarExpr::Extract(field, inner) => {
+                assert_eq!(field, kimberlite_types::DateField::Year);
+                match *inner {
+                    ScalarExpr::Literal(Value::Timestamp(_)) => {}
+                    other => panic!("expected Literal(Timestamp) inner, got {other:?}"),
+                }
+            }
+            other => panic!("expected Extract, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_time_constants_is_idempotent_on_non_sentinel_exprs() {
+        // Folding a tree without Now/CurrentTimestamp/CurrentDate is
+        // a structural no-op (trivially: the fold function is a deep
+        // clone that only rewrites three variants).
+        let ts_ns = 1_746_316_800_i64 * 1_000_000_000;
+        let expr = ScalarExpr::Upper(Box::new(ScalarExpr::Literal(Value::Text("hi".into()))));
+        let folded = fold_time_constants(&expr, ts_ns);
+        match folded {
+            ScalarExpr::Upper(inner) => match *inner {
+                ScalarExpr::Literal(Value::Text(s)) => assert_eq!(s, "hi"),
+                other => panic!("unexpected inner: {other:?}"),
+            },
+            other => panic!("expected Upper, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_time_constants_is_deterministic_with_same_clock() {
+        // Two NOW() folds with the same statement_ts_ns must produce
+        // identical Timestamp literals — that's the SQL standard's
+        // statement-stable contract for NOW().
+        let ts_ns = 1_746_316_800_i64 * 1_000_000_000;
+        let a = fold_time_constants(&ScalarExpr::Now, ts_ns);
+        let b = fold_time_constants(&ScalarExpr::Now, ts_ns);
+        match (a, b) {
+            (
+                ScalarExpr::Literal(Value::Timestamp(ta)),
+                ScalarExpr::Literal(Value::Timestamp(tb)),
+            ) => assert_eq!(ta.as_nanos(), tb.as_nanos()),
+            other => panic!("expected matching Timestamp literals: {other:?}"),
+        }
+    }
+
+    fn find_scalar_columns(p: &QueryPlan) -> Option<&[crate::plan::ScalarColumnDef]> {
+        match p {
+            QueryPlan::Materialize { scalar_columns, .. } => Some(scalar_columns),
+            QueryPlan::Aggregate { source, .. } => find_scalar_columns(source),
+            _ => None,
+        }
+    }
+
+    fn assert_no_sentinel(e: &ScalarExpr) {
+        match e {
+            ScalarExpr::Now | ScalarExpr::CurrentTimestamp | ScalarExpr::CurrentDate => {
+                panic!("planner left an unfolded time-now sentinel in the plan");
+            }
+            ScalarExpr::Upper(x)
+            | ScalarExpr::Lower(x)
+            | ScalarExpr::Length(x)
+            | ScalarExpr::Trim(x)
+            | ScalarExpr::Abs(x)
+            | ScalarExpr::Round(x)
+            | ScalarExpr::Ceil(x)
+            | ScalarExpr::Floor(x)
+            | ScalarExpr::RoundScale(x, _)
+            | ScalarExpr::Sqrt(x)
+            | ScalarExpr::Substring(x, _)
+            | ScalarExpr::Extract(_, x)
+            | ScalarExpr::DateTrunc(_, x)
+            | ScalarExpr::Cast(x, _) => assert_no_sentinel(x),
+            ScalarExpr::Concat(xs) | ScalarExpr::Coalesce(xs) => {
+                for x in xs {
+                    assert_no_sentinel(x);
+                }
+            }
+            ScalarExpr::Nullif(a, b) | ScalarExpr::Mod(a, b) | ScalarExpr::Power(a, b) => {
+                assert_no_sentinel(a);
+                assert_no_sentinel(b);
+            }
+            ScalarExpr::Literal(_) | ScalarExpr::Column(_) => {}
+        }
+    }
+
+    #[test]
+    fn plan_query_with_clock_folds_select_now() {
+        // End-to-end: parse `SELECT NOW()`, plan it, verify the
+        // resulting Materialize plan's scalar_columns contains a
+        // Literal(Timestamp), not a raw `Now` sentinel.
+        let schema = test_schema();
+        let parsed = parse_test_select("SELECT NOW() FROM users");
+        let ts_ns = 1_746_316_800_i64 * 1_000_000_000;
+        let plan = plan_query_with_clock(&schema, &parsed, &[], ts_ns).unwrap();
+
+        let scalars = find_scalar_columns(&plan).expect("plan must have scalar projection");
+        assert!(!scalars.is_empty(), "expected at least one scalar column");
+        for sc in scalars {
+            assert_no_sentinel(&sc.expr);
+        }
     }
 }

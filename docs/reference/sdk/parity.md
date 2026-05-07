@@ -17,7 +17,7 @@ whenever a new wire primitive lands.
 | `create_stream` (with placement) | ✅ | ✅ | ✅ |
 | `append` (optimistic concurrency) | ✅ | ✅ | ✅ |
 | `read_events` | ✅ | ✅ | ✅ |
-| `stream_length` (O(1) event count, v0.8.0) | ✅ | ✅ (`streamLength`) | 🚧 v0.8 |
+| `stream_length` (O(1) event count, v0.8.0) | ✅ | ✅ (`streamLength`) | 🚧 v0.9 |
 | `query` | ✅ | ✅ | ✅ |
 | `query_at` (time-travel) | ✅ | ✅ | ✅ |
 | `execute` (DML, returns ExecuteResult) | ✅ | ✅ | ✅ |
@@ -85,8 +85,8 @@ their existing test harnesses.
 | Feature | Rust | TypeScript | Python |
 |---|---|---|---|
 | `audit.query` (PHI-safe, v0.6.0 Tier 2 #9) | ✅ | ✅ | ✅ |
-| `audit.subscribe` (polling iterator, v0.8.0) | 🚧 v0.8 | ✅ | 🚧 v0.8 |
-| `audit.verifyChain` (server-walked, v0.8.0) | ✅ | ✅ | 🚧 v0.8 |
+| `audit.subscribe` (polling iterator, v0.8.0) | 🚧 v0.9 | ✅ | 🚧 v0.9 |
+| `audit.verifyChain` (server-walked, v0.8.0) | ✅ | ✅ | 🚧 v0.9 |
 | `export_subject` | ✅ | ✅ | ✅ |
 | `verify_export` | ✅ | ✅ | ✅ |
 | `breach_report_indicator` | ✅ | ✅ | ✅ |
@@ -123,10 +123,10 @@ builders that the typed-primitives module ships.
 
 | Feature | Rust | TypeScript | Python |
 |---|---|---|---|
-| `Interval` typed primitive | ✅ (kernel) | ✅ (TS shape + `intervalLiteral`) | 🚧 v0.8 |
-| `SubstringRange` typed primitive | ✅ (kernel) | ✅ (TS shape + `substringSql`) | 🚧 v0.8 |
-| `DateField` closed enum | ✅ (kernel) | ✅ (string-literal union + `extractFromSql` / `dateTruncSql`) | 🚧 v0.8 |
-| `AggregateMemoryBudget` typed primitive | ✅ (kernel) | ✅ (TS shape + floor enforcement) | 🚧 v0.8 |
+| `Interval` typed primitive | ✅ (kernel) | ✅ (TS shape + `intervalLiteral`) | 🚧 v0.9 |
+| `SubstringRange` typed primitive | ✅ (kernel) | ✅ (TS shape + `substringSql`) | 🚧 v0.9 |
+| `DateField` closed enum | ✅ (kernel) | ✅ (string-literal union + `extractFromSql` / `dateTruncSql`) | 🚧 v0.9 |
+| `AggregateMemoryBudget` typed primitive | ✅ (kernel) | ✅ (TS shape + floor enforcement) | 🚧 v0.9 |
 
 ## Framework integration examples (Phase 8)
 

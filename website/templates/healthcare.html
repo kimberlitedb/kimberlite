@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Kimberlite for Healthcare | {{ title }}{% endblock %}
+
+{% block content %}
+<!-- Hero -->
+<section class="hero" data-variant="inverted">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <span class="badge" data-variant="alert">HIPAA-aligned primitives, not yet certified</span>
+      <h1 class="hero__title">
+        <span class="highlight">HIPAA-aligned</span><br>
+        <span class="highlight">audit trails</span><br>
+        <span class="highlight">out of the box</span>
+      </h1>
+      <p class="hero__lede">
+        Build EHR, telemedicine, and clinical-trial systems on a database that ships the §164.312 substrate &mdash; immutable audit log, hash-chained tamper evidence, AES-256-GCM at rest, GDPR Article 17 erasure &mdash; instead of bolting it on.
+      </p>
+      <div class="cluster">
+        <a href="/docs/coding/quickstarts/healthcare" class="button" data-variant="light">
+          Healthcare quickstart
+        </a>
+        <a href="/#installation" class="button" data-variant="ghost-light">
+          Install Kimberlite
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- The compliance tax -->
+<section class="interactive-section" aria-labelledby="tax-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="tax-heading" class="section-title">The healthcare compliance tax</h2>
+        <p class="section-subtitle">If you're building a healthcare app on Postgres or MySQL, you're building five extra systems.</p>
+      </header>
+
+      <div class="flow" data-space="m">
+        <p>
+          <strong>Audit trail.</strong> Postgres triggers, manual change tables, or a parallel event store. Auditors ask: "Show me every read of this patient's chart in the last 90 days." You scramble.
+        </p>
+        <p>
+          <strong>Tamper evidence.</strong> Hash a row, store the hash in another row, hope nobody runs <code>UPDATE</code>. Most teams skip this entirely until OCR knocks.
+        </p>
+        <p>
+          <strong>Per-tenant encryption.</strong> Application-layer envelope encryption with a separate KMS, careful not to leak keys across the trust boundary. One mistake leaks PHI cross-tenant.
+        </p>
+        <p>
+          <strong>Point-in-time queries.</strong> Temporal table extensions, slowly-changing-dimension joins, or "we keep nightly snapshots, sorry." Malpractice review takes weeks.
+        </p>
+        <p>
+          <strong>GDPR Article 17 erasure.</strong> A grep across every table, every backup, every replica &mdash; and the hope that you got them all. Most teams pray instead of proving.
+        </p>
+        <p>
+          Kimberlite ships all five in the core. The walkthrough below proves it.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- What you get -->
+<section class="interactive-section" aria-labelledby="capabilities-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="capabilities-heading" class="section-title">What you get on day one</h2>
+      </header>
+
+      <div class="feature-list">
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">✓</span>
+          <span><strong>Tamper-evident PHI access log.</strong> Every read and write recorded in an append-only, hash-chained event stream. <code>audit.verifyChain()</code> walks the SHA-256 chain server-side and tells you the exact event index of any tampering.</span>
+        </div>
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">✓</span>
+          <span><strong>Native time-travel queries.</strong> <code>SELECT &hellip; AS OF TIMESTAMP '2025-08-12T14:30:00Z'</code> reconstructs the chart at any point in the past. Malpractice review goes from weeks to seconds.</span>
+        </div>
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">✓</span>
+          <span><strong>GDPR Article 17 erasure orchestration.</strong> <code>compliance.erasure.request(subject_id)</code> auto-discovers every stream containing the subject and tracks per-stream completion with a <code>requestId</code> correlation id. International patients are covered.</span>
+        </div>
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">✓</span>
+          <span><strong>GDPR Article 6 consent-basis tracking.</strong> Wire-level consent records carry the lawful basis (<code>"Consent"</code>, <code>"Contract"</code>, <code>"VitalInterest"</code>, <code>"PublicInterest"</code>, <code>"LegalObligation"</code>, <code>"LegitimateInterests"</code>) and a justification string. Auditors ask "on what legal basis did you process this PHI?" — you query.</span>
+        </div>
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">✓</span>
+          <span><strong>Multi-tenant key isolation.</strong> Cryptographic boundaries per tenant. A clinic per tenant means one bug doesn't leak PHI cross-clinic.</span>
+        </div>
+        <div class="feature-list__item">
+          <span class="feature-list__icon" aria-hidden="true">✓</span>
+          <span><strong>BAA-friendly architecture.</strong> Self-hosted, your deployment, your keys. The Business Associate Agreement is between you and your hosting provider; Kimberlite the OSS substrate stays out of your PHI flow.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HIPAA mapping -->
+<section class="interactive-section" aria-labelledby="hipaa-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="hipaa-heading" class="section-title">45 CFR §164.312 mapping</h2>
+        <p class="section-subtitle">The HIPAA Technical Safeguards rule — what Kimberlite covers, end-to-end.</p>
+      </header>
+
+      <div class="comparison-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Clause</th>
+              <th>How Kimberlite supports it</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>(a)(1) Access Control</td><td>Multi-tenant isolation + <code>access_grants</code> table + RBAC/ABAC enforcement at the SQL rewriter</td></tr>
+            <tr><td>(a)(2)(i) Unique User Identification</td><td>Provider + API-key-per-subject identity</td></tr>
+            <tr><td>(b) Audit Controls</td><td>Append-only log + queryable <code>audit_log</code> + server-walked <code>audit.verifyChain()</code></td></tr>
+            <tr><td>(c)(1) Integrity</td><td>Hash-chained log entries (SHA-256) + CRC32 on every frame</td></tr>
+            <tr><td>(d) Authentication</td><td>JWT + API key with <code>client.admin.issue_api_key()</code></td></tr>
+            <tr><td>(e) Transmission Security</td><td>TLS via <code>kimberlite start --tls-cert</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Compliance posture -->
+<section class="interactive-section" aria-labelledby="posture-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="m">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="posture-heading" class="section-title">What "HIPAA-aligned" means here</h2>
+      </header>
+      <p>
+        Kimberlite ships the cryptographic and architectural primitives that HIPAA Technical Safeguards demand. That is necessary, not sufficient.
+      </p>
+      <p>
+        <strong>What we have NOT done:</strong> third-party HIPAA attestation, Business Associate Agreement with covered entities, OCR audit. Those are <a href="https://github.com/kimberlitedb/kimberlite/blob/main/ROADMAP.md">v1.0 gates</a>.
+      </p>
+      <p>
+        <strong>What this means for you:</strong> a healthcare startup can build on Kimberlite today knowing the substrate is sound. The audit letter and the BAA are work your team (or we, post-v1.0) still have to do — BAA with your hosting provider, internal controls, pen test, audit firm. Kimberlite <em>enables</em> your HIPAA posture; certification remains your team's responsibility.
+      </p>
+      <p>
+        <a href="/faq">Read the full FAQ</a> for the production-readiness conversation, including known limitations of v0.8.0.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="interactive-section" data-variant="inverted">
+  <div class="wrapper">
+    <div class="flow" data-space="m" data-align="center">
+      <h2 class="section-title">Ready to build?</h2>
+      <p>The healthcare quickstart drives a real clinical schema (patients, providers, encounters, access grants, audit log) end-to-end &mdash; SQL audit queries, time-travel reconstruction, consent grant + erasure across Rust / TypeScript / Python.</p>
+      <div class="cluster" data-justify="center">
+        <a href="/docs/coding/quickstarts/healthcare" class="button" data-variant="primary">Healthcare quickstart</a>
+        <a href="https://github.com/kimberlitedb/kimberlite/tree/main/examples/healthcare" class="button" data-variant="ghost">Browse the example</a>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

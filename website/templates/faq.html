@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}FAQ | {{ title }}{% endblock %}
+
+{% block content %}
+<!-- Hero -->
+<section class="hero" data-variant="inverted">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <h1 class="hero__title">
+        <span class="highlight">Frequently Asked</span><br>
+        <span class="highlight">Questions</span>
+      </h1>
+      <p class="hero__lede">
+        Direct answers about production-readiness, compliance posture, and what Kimberlite does &mdash; and doesn't &mdash; do today.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ Body -->
+<section class="interactive-section" aria-labelledby="faq-heading">
+  <div class="wrapper">
+    <div class="flow" data-space="xl">
+      <header class="interactive-section__header flow" data-space="s">
+        <h2 id="faq-heading" class="section-title">Production &amp; readiness</h2>
+        <p class="section-subtitle">If you're a regulated startup evaluating Kimberlite, start here.</p>
+      </header>
+
+      <article class="flow" data-space="m">
+        <h3>Is Kimberlite production-ready?</h3>
+        <p>
+          Kimberlite is in <strong>Developer Preview</strong> at v0.8.0. The core is stable: 3,000+ tests, deterministic VOPR simulation, formal verification across TLA+ / Coq / Kani / Ivy / Alloy, and a closed pre-launch security audit. Single-node deployments are stable for prototypes, internal tooling, and compliance research.
+        </p>
+        <p>
+          For full production deployments at scale, wait for v1.0 &mdash; that's when third-party SOC 2 / HIPAA attestations, published performance baselines, multi-node cluster productionisation, and SDK coverage (Go, Java, C++) close. See the <a href="https://github.com/kimberlitedb/kimberlite/blob/main/ROADMAP.md">ROADMAP v1.0 gates</a> for the full checklist.
+        </p>
+      </article>
+
+      <article class="flow" data-space="m">
+        <h3>Is Kimberlite HIPAA-compliant? SOC 2-certified? FedRAMP-authorized?</h3>
+        <p>
+          <strong>Not directly &mdash; and we want to be precise about that.</strong> Kimberlite ships the cryptographic and architectural primitives that HIPAA, SOC 2, FedRAMP, GDPR, PCI DSS, and ISO 27001 demand: hash-chained immutable audit log, server-walked chain attestation (<code>audit.verifyChain()</code>), AES-256-GCM at rest, Ed25519 signed exports, multi-tenant key isolation, GDPR Article 17 erasure orchestration, GDPR Article 6 consent-basis tracking on the wire, column-level masking policies. Six frameworks are formally modelled in TLA+ with TLAPS proofs in nightly CI.
+        </p>
+        <p>
+          What we have <em>not</em> done: third-party SOC 2 Type II audit, HIPAA attestation + Business Associate Agreement, FedRAMP authorization letter, GDPR readiness review. Those are v1.0 gates.
+        </p>
+        <p>
+          <strong>What this means for you:</strong> a regulated startup can build on Kimberlite today knowing the substrate is sound. The audit letters and certifications are work your team (or we, post-v1.0) still have to do &mdash; BAA with your hosting provider, internal controls, pen test, audit firm engagement. Kimberlite <em>enables</em> your compliance posture; certification remains your team's responsibility.
+        </p>
+      </article>
+
+      <article class="flow" data-space="m">
+        <h3>Can I use Kimberlite for my healthcare / fintech / legal / education / government startup today?</h3>
+        <p>
+          <strong>Yes</strong> &mdash; for prototypes, internal tools, compliance research, and learning. The core works, the SQL surface is broad (SELECT with aggregates, joins, CTEs incl. recursive, window functions, time-travel via <code>AS OF TIMESTAMP</code>, upsert via <code>INSERT &hellip; ON CONFLICT</code>, JSON operators), and the compliance API surface is reachable from Rust, TypeScript, and Python SDKs.
+        </p>
+        <p>
+          <strong>Wait for v1.0</strong> if you need production multi-node cluster deployment, audited compliance certifications, published performance baselines, API stability guarantees, or commercial support.
+        </p>
+        <p>
+          See <a href="/docs/coding/quickstarts/healthcare">healthcare quickstart</a> and <a href="/docs/coding/quickstarts/finance">finance quickstart</a> for end-to-end walkthroughs.
+        </p>
+      </article>
+
+      <article class="flow" data-space="m">
+        <h3>What about multi-statement transactions (BEGIN / COMMIT / ROLLBACK)?</h3>
+        <p>
+          <strong>Not in v0.8.0.</strong> The parser rejects them. Single statements are atomic. Multi-statement transactions are planned <em>post-v1.0</em> &mdash; they intentionally sit behind the v1.0 checklist gates so the immutable-log + derived-view contract stays clean for the initial OSS release.
+        </p>
+        <p>
+          For cross-table workflows today, design each step to be idempotent and use the outbox pattern (recipe in the cookbook). Kimberlite's append-only model means most "transaction" use cases &mdash; debit-then-credit ledger entries, encounter-then-audit insertions &mdash; can be expressed as a single batch append against an event stream.
+        </p>
+      </article>
+
+      <article class="flow" data-space="m">
+        <h3>Where are the performance benchmarks?</h3>
+        <p>
+          Not yet published. Hardware re-baseline against current generations is a <strong>v0.9.0</strong> target. What we have today: 3,000+ correctness tests, deterministic VOPR simulation that catches consensus bugs, formal verification proofs, and a closed pre-launch security audit. Throughput / latency numbers on reference hardware are coming &mdash; we'd rather publish honest numbers than aspirational ones.
+        </p>
+      </article>
+
+      <article class="flow" data-space="m">
+        <h3>Why doesn't <code>SELECT NOW()</code> work?</h3>
+        <p>
+          Known issue in v0.8.0. v0.7.0 shipped the <code>NOW()</code> / <code>CURRENT_TIMESTAMP</code> / <code>CURRENT_DATE</code> sentinel variants in the AST, but the planner-side <code>fold_time_constants</code> pass that substitutes them with the request timestamp before evaluation is a v0.9.0 in-flight item. Until then, the evaluator panics if it sees an unfolded sentinel (this is intentional &mdash; we'd rather fail loud than silently return wall-clock time from inside a pure kernel that should be deterministic).
+        </p>
+        <p>
+          <strong>Workaround:</strong> pass an explicit timestamp parameter from your application instead of relying on <code>NOW()</code> inside SQL.
+        </p>
+      </article>
+
+      <article class="flow" data-space="m">
+        <h3>Which language SDKs work today?</h3>
+        <p>
+          <strong>Rust, TypeScript, and Python</strong> are at full parity for the data plane and compliance surface. All three ship connection pooling, real-time subscriptions, typed errors, and the full <code>compliance.{consent, audit, erasure, export, breach}</code> API. See the <a href="/docs/reference/sdk/parity">SDK parity matrix</a> for the per-feature status.
+        </p>
+        <p>
+          <strong>Go</strong> Phase 1 (data plane + pool) is a v0.9.0 in-flight item; Phase 2 (compliance) and Phase 3 (typed primitives + framework integrations) follow inside the v0.9.x &rarr; v1.0 window. <strong>Java</strong> and <strong>C++</strong> are v1.0 gates.
+        </p>
+      </article>
+
+      <article class="flow" data-space="m">
+        <h3>Single-node or multi-node?</h3>
+        <p>
+          Single-node only for production today. Multi-node Viewstamped Replication consensus is fully implemented (Normal, ViewChange, Recovery, Repair, StateTransfer, Reconfiguration) and PR-gated against TLA+ specs &mdash; but the <code>kimberlite-cluster</code> crate that orchestrates a multi-node deployment is marked "not ready for public use." Productionising the cluster operator is a v1.0 gate.
+        </p>
+      </article>
+
+      <article class="flow" data-space="m">
+        <h3>How do I get help or report a bug?</h3>
+        <p>
+          <a href="https://discord.gg/QPChWYjD">Discord</a> for real-time questions and design discussions. <a href="https://github.com/kimberlitedb/kimberlite/issues">GitHub Issues</a> for bugs and feature requests. <a href="https://github.com/kimberlitedb/kimberlite/discussions">GitHub Discussions</a> for ideas and longer-form conversation.
+        </p>
+      </article>
+
+      <div class="cluster" data-justify="center">
+        <a href="/docs" class="button" data-variant="primary">Read the docs</a>
+        <a href="https://github.com/kimberlitedb/kimberlite" class="button" data-variant="ghost">Star on GitHub</a>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

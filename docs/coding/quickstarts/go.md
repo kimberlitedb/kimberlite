@@ -7,9 +7,15 @@ order: 4
 
 # Go SDK Quickstart
 
-**Status**: 📋 Planned (Phase 11.5)
+**Status**: 📋 Planned (v0.9.0 Phase 1). Rust / TypeScript / Python SDKs are at full parity today — see the [SDK parity matrix](/docs/reference/sdk/parity).
 
-Get started with Kimberlite in Go (coming soon).
+The Go SDK ships in three phases:
+
+- **Phase 1 (v0.9.0):** `Connect`, `Query`, `Append`, `Read`, `Subscribe`, `Pool` over the FFI bridge that the Rust / Python / TypeScript SDKs share. Scaffolding lives at `sdks/go/` in the repo.
+- **Phase 2 (v0.9.x → v1.0):** compliance surface (`consent.*`, `erasure.*`, `audit.*`, `export_subject`, `breach_*`).
+- **Phase 3 (v1.0 gate):** typed primitives, framework integrations, and parity sign-off in the matrix.
+
+Until then, Go services can call Kimberlite via the wire protocol directly (see [protocol reference](/docs/reference/protocol)) or via gRPC bridges. The remainder of this page is a forward-looking sketch of the Go API.
 
 ## Installation
 
@@ -198,4 +204,4 @@ for {
 
 - [SDK Architecture](/docs/reference/sdk/overview)
 - [Protocol Specification](/docs/reference/protocol)
-- Go examples (coming soon)
+- Go examples will land alongside the v0.9.0 Phase 1 SDK in `examples/go/`. Until then, see [Rust](/docs/coding/quickstarts/rust), [TypeScript](/docs/coding/quickstarts/typescript), or [Python](/docs/coding/quickstarts/python) for working SDK examples.

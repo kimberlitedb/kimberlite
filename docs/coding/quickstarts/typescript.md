@@ -297,5 +297,5 @@ describe('Kimberlite', () => {
 
 - [SDK Architecture](/docs/reference/sdk/overview)
 - [Protocol Specification](/docs/reference/protocol)
-- TypeScript examples (coming soon)
+- TypeScript examples: [`examples/typescript/express-app/`](https://github.com/kimberlitedb/kimberlite/tree/main/examples/typescript/express-app), [`examples/typescript/nextjs-app/`](https://github.com/kimberlitedb/kimberlite/tree/main/examples/typescript/nextjs-app), [`examples/healthcare/clinic.ts`](https://github.com/kimberlitedb/kimberlite/blob/main/examples/healthcare/clinic.ts)
 - API documentation generated from source

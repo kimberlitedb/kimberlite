@@ -156,5 +156,5 @@ let offset = tenant.append(stream_id, large_batch)?;
 
 - [Architecture Overview](/docs/concepts/architecture)
 - [API Documentation](https://docs.rs/kimberlite)
-- Rust examples (coming soon)
+- Rust examples: [`examples/rust/src/basic.rs`](https://github.com/kimberlitedb/kimberlite/blob/main/examples/rust/src/basic.rs), [`streaming.rs`](https://github.com/kimberlitedb/kimberlite/blob/main/examples/rust/src/streaming.rs), [`time_travel.rs`](https://github.com/kimberlitedb/kimberlite/blob/main/examples/rust/src/time_travel.rs), [`clinic.rs`](https://github.com/kimberlitedb/kimberlite/blob/main/examples/rust/src/clinic.rs), web framework integrations [`axum_app.rs`](https://github.com/kimberlitedb/kimberlite/blob/main/examples/rust/src/axum_app.rs) / [`actix_app.rs`](https://github.com/kimberlitedb/kimberlite/blob/main/examples/rust/src/actix_app.rs)
 - [Testing Guide](/docs/internals/testing/overview)

@@ -402,6 +402,8 @@ impl QueryEngine {
                     if has_correlated_predicate(&parsed.predicates) {
                         self.execute_correlated_query(store, &parsed, params)?
                     } else {
+                        // `plan_query` folds time-now sentinels via
+                        // AUDIT-2026-05 S3.7 — see `planner.rs`.
                         let plan = planner::plan_query(&self.schema, &parsed, params)?;
                         let table_def = self
                             .schema

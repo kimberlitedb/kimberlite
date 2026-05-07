@@ -622,7 +622,7 @@ kimberlite-cli cluster status
 # Verify: All replicas healthy, no lag
 
 kimberlite-cli cluster version
-# Current version: v0.3.0
+# Current version: v0.7.0
 
 # 2. UPGRADE REPLICAS SEQUENTIALLY (one at a time)
 for replica_id in 2 1 0; do  # Backups first, primary last
@@ -630,12 +630,12 @@ for replica_id in 2 1 0; do  # Backups first, primary last
 
     # Kubernetes
     kubectl set image statefulset/kimberlite \
-        kimberlite=kimberlite/server:v0.4.0 \
+        kimberlite=kimberlite/server:v0.8.0 \
         --namespace production
     kubectl rollout status statefulset/kimberlite
 
     # OR Docker
-    # docker pull kimberlite/server:v0.4.0
+    # docker pull kimberlite/server:v0.8.0
     # systemctl restart kimberlite
 
     # Wait for replica to rejoin
@@ -651,11 +651,11 @@ done
 
 # 3. VERIFY FEATURE ACTIVATION
 kimberlite-cli cluster features
-# Expected: New features enabled when all replicas reach v0.4.0
+# Expected: New features enabled when all replicas reach v0.8.0
 
 # 4. POST-UPGRADE VALIDATION
 kimberlite-cli cluster status
-# Verify: All replicas on v0.4.0, cluster healthy
+# Verify: All replicas on v0.8.0, cluster healthy
 
 # Run smoke tests
 kimberlite-cli test smoke-tests --critical-only
@@ -671,7 +671,7 @@ kimberlite-cli test smoke-tests --critical-only
 
 for replica_id in 0 1 2; do
     kubectl set image statefulset/kimberlite \
-        kimberlite=kimberlite/server:v0.3.0 \
+        kimberlite=kimberlite/server:v0.7.0 \
         --namespace production
 
     kimberlite-cli replica status --replica-id $replica_id --wait-healthy

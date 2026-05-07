@@ -18,6 +18,72 @@ user-facing narrative.
 _Accretion slot for v0.9.0 work. See [`ROADMAP.md`](./ROADMAP.md)
 for planned scope._
 
+### Added — OSS launch readiness
+
+- **Plan-time time-fold production wiring.** `plan_query` now folds
+  `ScalarExpr::Now` / `CurrentTimestamp` / `CurrentDate` sentinels
+  into `Literal(Timestamp(ns))` / `Literal(Date(days))` before
+  returning, using a single statement-stable timestamp sampled at
+  the planner boundary. Closes the v0.8.0 ROADMAP item that left
+  these scalars panicking if reached unfolded. New public API:
+  `planner::fold_time_constants(expr, ts_ns)`,
+  `planner::fold_time_constants_in_plan(plan, ts_ns)`,
+  `planner::current_statement_timestamp_ns()`,
+  `planner::plan_query_with_clock(schema, parsed, params, ts_ns)`
+  for VOPR / replay paths that need a deterministic clock. The
+  `#[should_panic]` evaluator tests stay in place — they're now
+  the contract that the fold pass MUST run before evaluation.
+  AUDIT-2026-05 S3.7. (planner.rs:282–415, lib.rs:405)
+- **Healthcare and finance vertical pages on the website.** New
+  `/healthcare` and `/finance` landing pages with HIPAA / SEC
+  17a-4 / SOX / GLBA mapping tables; new `/faq` page surfacing
+  production-readiness, compliance posture (formally modelled, not
+  yet certified), and known limitations of v0.8.0. New
+  `docs/coding/quickstarts/{healthcare,finance}.md` walking
+  through `examples/healthcare/` and `examples/finance/` end to end.
+- **Finance ledger example.** New `examples/finance/00-setup.sh`,
+  `03-time-travel.sql`, and `ledger.py` mirroring the structure of
+  the healthcare clinic example. Demonstrates SEC 17a-4 audit
+  trails, point-in-time portfolio reconstruction, GDPR Article 6
+  consent under `Contract` lawful basis, and erasure orchestration
+  with SEC-retention caveats.
+- **Cookbook recipes for already-shipped primitives.** New
+  `examples/cookbook/{time-travel,audit-verify-chain,multi-tenant}/`
+  with runnable TypeScript scripts. Each ends with the
+  `KMB_COOKBOOK_OK` success marker that CI gates on.
+- **README "Known Limitations" + "Compliance posture" sections.**
+  Up-front honesty: single-node only for production, no
+  multi-statement transactions, no published benchmarks yet, no
+  third-party SOC 2 / HIPAA / FedRAMP attestations. `Kimberlite
+  *enables* your compliance posture; certification remains your
+  team's responsibility.`
+
+### Fixed — docs accuracy sweep
+
+- ROADMAP Status header: `v0.7.0` → `v0.8.0`; v0.8.0 in-flight
+  section moved to Released; new v0.9.0 in-flight populated from
+  the items v0.8.0 deferred (Go SDK Phase 1, plan-time time-fold
+  wiring, VOPR scenario drivers, pool metrics) plus Python parity
+  for the items TS / Rust shipped in v0.8.0.
+- SDK parity matrix: every `🚧 v0.8` row reconciled against what
+  actually shipped in v0.8.0 — `audit.subscribe` (Rust 🚧 v0.9,
+  Python 🚧 v0.9), `audit.verifyChain` Python 🚧 v0.9, typed
+  primitive bindings Python 🚧 v0.9, `streamLength` Python 🚧 v0.9.
+- Quick-start banner version: `v0.4.0` → `v0.8.0`. Installation
+  docs `--version` example: `v0.4.2` → `v0.8.0`. Production
+  deployment doc: image tags + the v0.4 disclaimer brought to
+  v0.8.0. Runbook example image tags: `v0.3.0` / `v0.4.0` →
+  `v0.7.0` / `v0.8.0`. Website download / home templates: `v0.4.2`
+  example → `v0.8.0`; obsolete v0.5.0 ROADMAP comment removed.
+- Compliance certification package: `as of v0.4` → `as of v0.8`.
+- SQL DML reference: transactions language reconciled —
+  `BEGIN`/`COMMIT`/`ROLLBACK` are planned **post-v1.0**, not
+  "v1.0", to match the README and ROADMAP.
+- Coding quickstart "(coming soon)" links replaced with concrete
+  pointers to `examples/` per language.
+- Go SDK status: `Deferred post-v0.4 launch` → `Phase 1 planned
+  for v0.9.0`, with explicit Phase 2 / Phase 3 scope.
+
 ## [0.8.0] — 2026-05-06
 
 **Theme:** notebar v0.7.0-migration wishlist + SDK error/audit

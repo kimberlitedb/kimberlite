@@ -12,20 +12,23 @@ Detail for each planned feature lives in GitHub issues.
 
 ## Status
 
-**Current release:** `v0.7.0` (2026-05-04) — production-validation
-release. Ships the SQL surface notebar's healthcare reporting flow
-needs (MOD/POWER/SQRT/SUBSTRING/EXTRACT/DATE_TRUNC + interval
-arithmetic primitives), the catalog-staleness fix that unblocks
-DROP+CREATE same-name DDL loops, the inverted-range planner fix
-removing the v0.6.1 fuzz-cfg escape hatch, the `AggregateMemoryBudget`
-typed primitive + new error variant, 16 scaffolded VOPR scenarios
-across the v0.6.0 command families, the auto-generated traceability
-matrix tool, the `validate-publish-order` topo checker, and the
-PRESSURECRAFT-discipline plumbing for the time-now scalars
-(plan-time fold). Python SDK floor bumped 3.9 → 3.10. See
+**Current release:** `v0.8.0` (2026-05-06) — notebar v0.7.0-migration
+wishlist + SDK error/audit ratchet. Six items surfaced when notebar
+drove a real workload on top of v0.7.0; each shipped behind its own
+PR (#125 → #131). Highlights: typed unique-constraint error
+(`QueryError::DuplicatePrimaryKey` end-to-end across Rust / TS /
+Python), `requestId` on the `eraseSubject` per-stream callback,
+`Effect::ProjectionRowsPurge` for DROP TABLE row purge,
+`streamLength(streamId)` O(1) primitive (TS + Rust),
+TS bindings for the v0.7.0 typed primitives (`Interval`,
+`SubstringRange`, `DateField`, `AggregateMemoryBudget`),
+server-walked `audit.verifyChain()` (replaces the v0.5.0 / v0.6.0
+hardcoded `{ ok: true }` stub) on TS + Rust, and `audit.subscribe()`
+polling iterator on TS. Python parity for these items is the
+v0.9.0 ratchet — see "v0.9.0 — in-flight" below. See
 [`CHANGELOG.md`] for the full list.
 
-**Next release:** v0.8.0 — see "v0.8.0 — in-flight" below.
+**Next release:** v0.9.0 — see "v0.9.0 — in-flight" below.
 
 **Target v1.0:** when the gates below close. No fixed date — we ship
 when the third-party audits, SDK coverage, and production readiness
@@ -33,101 +36,113 @@ criteria are all green.
 
 [`v0.6.0`]: https://github.com/kimberlitedb/kimberlite/releases/tag/v0.6.0
 [`v0.7.0`]: https://github.com/kimberlitedb/kimberlite/releases/tag/v0.7.0
+[`v0.8.0`]: https://github.com/kimberlitedb/kimberlite/releases/tag/v0.8.0
 
 ---
 
-## v0.8.0 — in-flight
+## v0.9.0 — in-flight
 
-Items deferred from v0.7.0 (Go SDK Phase 1, plan-time time-fold
-production wiring, full driver implementations for the 16 v0.7.0
-scaffolded VOPR scenarios, pool metrics) plus the six SDK gaps
-notebar surfaced during its v0.7.0 migration. Folded into one
-minor release rather than splitting across a v0.7.1 patch — keeps
-release overhead in one cycle and lets the audit-wiring + DROP-
-TABLE-purge work (which need new wire frames / kernel effects)
-ship as first-class members.
+The v0.9.0 cycle finishes the items v0.8.0 deferred (Go SDK Phase 1,
+plan-time time-fold production wiring, VOPR scenario drivers for the
+v0.7.0 scaffolds, pool-metrics client-side parity) plus Python parity
+for the SDK primitives that landed TS-first / Rust-first in v0.8.0.
+Stretch goal: published performance baselines on reference hardware
+so the `compare/postgresql` page and the README's trade-off table
+quote real numbers instead of qualitative language.
 
 - [ ] **Go SDK — Phase 1.** `Connect`/`Query`/`Append`/`Read`/
       `Subscribe`/`Pool` over the existing FFI bridge. Scaffolding
-      lives at `sdks/go/`; v0.7.0 deferred this so TS / Python /
-      Rust stayed at parity. Notebar's TS stack is unaffected.
-- [ ] **Plan-time time-fold production wiring.** v0.7.0 ships the
-      `ScalarExpr::Now` / `CurrentTimestamp` / `CurrentDate`
+      lives at `sdks/go/`; v0.7.0 + v0.8.0 deferred this so TS /
+      Python / Rust stayed at parity for the data plane and
+      compliance surface. Phase 2 (compliance) and Phase 3
+      (typed primitives + framework integrations) follow inside
+      the v0.9.x → v1.0 window.
+- [ ] **Plan-time time-fold production wiring.** v0.7.0 shipped
+      the `ScalarExpr::Now` / `CurrentTimestamp` / `CurrentDate`
       sentinel variants and the evaluator panics if reached
-      unfolded (paired `#[should_panic]` tests verify); the
-      planner-side `fold_time_constants` pass needs to be wired
-      into `tenant.rs::execute` so production queries actually
-      use these scalars without panicking.
+      unfolded (paired `#[should_panic]` tests at
+      `crates/kimberlite-query/src/expression.rs:1336-1354`
+      verify). The planner-side `fold_time_constants` pass needs
+      to be implemented and wired into `tenant.rs::execute` so
+      production queries actually use these scalars without
+      panicking. Carried over from v0.8.0 in-flight.
 - [ ] **VOPR scenario drivers for the 16 v0.7.0 scaffolds.** Each
-      `Masking*` / `Upsert*` / `AsOfTimestamp*` / `EraseAutoDiscovery*`
-      variant has a documented canary mutation; the driver step
-      that injects + asserts ships per family. Currently each
-      variant runs the baseline workload via
-      `ScenarioConfig::aspirational_v07`.
+      `Masking*` / `Upsert*` / `AsOfTimestamp*` /
+      `EraseAutoDiscovery*` variant has a documented canary
+      mutation; the driver step that injects + asserts ships per
+      family. Currently each variant runs the baseline workload
+      via `ScenarioConfig::aspirational_v07`. Carried over.
 - [ ] **Pool metrics — client-side Prometheus parity.** Server-side
-      metrics already exist at `crates/kimberlite-server/src/metrics.rs`;
-      v0.7.0 deferred the TS / Python / Rust client-side surface
-      because it touches the napi-rs binding layer. AWS ECS-friendly
+      metrics already exist at
+      `crates/kimberlite-server/src/metrics.rs`; v0.7.0 + v0.8.0
+      deferred the TS / Python / Rust client-side surface because
+      it touches the napi-rs binding layer. AWS ECS-friendly
       design: text-format `pool.metrics()` consumed by CloudWatch
       Prometheus source.
-- [ ] **Typed unique-constraint error.** New
-      `QueryError::DuplicatePrimaryKey { table, key }` variant +
-      `ErrorCode::UniqueConstraintViolation` + per-SDK error class
-      (TS `UniqueConstraintViolationError`, Python equivalent,
-      Rust `ClientError` + `DomainError` variant). Replaces try-
-      INSERT-then-SELECT recovery patterns. Notebar surfaced this
-      in `webhook-dedup.ts:60-68`. Kernel already has typed DDL
-      variants (`crates/kimberlite-kernel/src/kernel.rs:1371-1450`);
-      this extends parity into the DML INSERT path
-      (`crates/kimberlite/src/tenant.rs:1628`).
-- [ ] **`requestId` on `eraseSubject` `onStream` callback.**
-      Additive 2nd arg `(streamId, requestId)` on the TS callback
-      at `sdks/typescript/src/compliance.ts:471-486`; closes
-      notebar's empty-string placeholder in `erasure.ts:139`. Old
-      1-arg callbacks still type-check (TS allows fewer-arg
-      function assignment). Mirror in Python + Rust.
-- [ ] **Audit `verifyChain()` + `subscribe()` wiring.** Land
-      `VerifyAuditChainRequest` / `Response` and a cross-stream
-      Subscribe filter (or sibling `AuditSubscribeRequest`);
-      replace the TS stubs at
-      `sdks/typescript/src/compliance.ts:631-657`. Server-side
-      walks the `ComplianceAuditEvent.prev_hash` ⟶ `event_hash`
-      SHA-256 chain. Add Python + Rust SDK methods (currently
-      absent — `docs/reference/sdk/parity.md:87` flags all three
-      as `🚧 v0.7`). Update parity matrix to ✅.
-- [ ] **Projection-store row purge on DROP TABLE.** New
-      `Effect::ProjectionRowsPurge { tenant_id, table_id }` emitted
-      alongside `Effect::TableMetadataDrop` in
-      `crates/kimberlite-kernel/src/kernel.rs:434-477`. Implement
-      `ProjectionStore::purge_table(table_id)` in
-      `crates/kimberlite-store/src/lib.rs` and un-`#[ignore]`
-      `tests/catalog_staleness.rs::drop_does_not_yet_purge_projection_rows`.
-      v0.7.0 CHANGELOG documented this as a known issue.
-- [ ] **`streamLength(streamId)` primitive.** O(1) read of
-      `StreamMetadata.current_offset` (already tracked atomically
-      in the AppendBatch path at
-      `crates/kimberlite-kernel/src/kernel.rs:216-217`). Replaces
-      full-stream walks for counting; surfaced in every Group-1
-      site of the notebar codebase. Pre-flight check: reuse an
-      existing admin wire frame if `StreamInfoRequest` already
-      returns metadata; else add a minimal
-      `StreamLengthRequest`/`Response` pair.
-- [ ] **TS bindings for v0.7.0 typed primitives.** napi-rs
-      `#[napi(object)]` mirrors for `Interval`,
-      `AggregateMemoryBudget`, `SubstringRange` + string-tag
-      converter for `DateField` (TS string-literal union:
-      `"year" | "quarter" | "month" | "week" | "day" | "hour" |
-      "minute" | "second"`). Wire into `JsQueryParam` and
-      `JsQueryValue` so they round-trip as parameters and result
-      columns. Makes v0.7.0 typed primitives reachable from JS
-      without raw SQL. Notebar wishlist item.
+- [ ] **Python parity for v0.8.0 deliveries.** Catch-up cycle for
+      the items that landed TS-first / Rust-first:
+      `streamLength` (O(1) row count), typed primitive bindings
+      (`Interval`, `SubstringRange`, `DateField`,
+      `AggregateMemoryBudget`), and `audit.verifyChain` /
+      `audit.subscribe`. Re-uses the same wire frames; Python
+      napi-equivalent shapes via the existing FFI bridge.
+- [ ] **Rust `audit.subscribe` polling iterator.** TS shipped in
+      v0.8.0; Rust client + Python parity follow here. Mirror the
+      shape of `erasure.subscribe()`. Cross-stream subscription-
+      filter server hook (push-based instead of polling) stays
+      deferred — the polling iterator is sufficient for the
+      dashboard use-case notebar surfaced.
+- [ ] **Performance baselines on reference hardware.** Quoted in
+      the README trade-off table and the `compare/postgresql`
+      website page. Bench harness already exists; v0.9.0 publishes
+      numbers (single-node read/write throughput, consensus
+      latency on a 3-node VSR cluster, audit-chain verification
+      cost). Closes the qualitative-only gap for founders
+      evaluating Kimberlite for production workloads.
 
 (Plus the items below carried forward from the v0.7.0 deferred
-section — re-evaluate at v0.8.0 cycle planning.)
+section — re-evaluate at v0.9.0 cycle planning.)
 
 ---
 
 ## Released
+
+### v0.8.0 (2026-05-06)
+
+- ✅ Typed unique-constraint error end-to-end —
+  `QueryError::DuplicatePrimaryKey { table, key }` plumbed through
+  `ErrorCode::UniqueConstraintViolation` on the wire, FFI, and
+  per-SDK error class (Rust / TS / Python)
+- ✅ `requestId` exposed to the per-stream callback on
+  `eraseSubject` (TS additive 2nd arg; Python arity-detected;
+  Rust closure type bumped — pre-1.0 SDK breaking change
+  documented in CHANGELOG)
+- ✅ `Effect::ProjectionRowsPurge { tenant_id, table_id }` —
+  DROP TABLE now actually purges projection rows (un-`#[ignore]`d
+  the `tests/catalog_staleness.rs::drop_table_purges_projection_rows`
+  regression net)
+- ✅ `streamLength(streamId)` / `stream_length(stream_id)` —
+  O(1) row count via new `StreamInfoRequest` /
+  `StreamInfoResponse` wire frames (TS + Rust; Python parity in
+  v0.9.0)
+- ✅ TS bindings for v0.7.0 typed primitives —
+  `sdks/typescript/src/typed-primitives.ts` exposes type
+  definitions, constructors that enforce Rust-side invariants,
+  and SQL fragment builders for `Interval`,
+  `AggregateMemoryBudget`, `SubstringRange`, `DateField`
+- ✅ `audit.verifyChain()` server-walked attestation — replaces
+  the v0.5.0 / v0.6.0 hardcoded `{ ok: true }` stub with a real
+  SHA-256 hash-chain walk; new
+  `VerifyAuditChainRequest` / `Response` wire frames; populated
+  `eventCount` / `chainHeadHex` / `firstBrokenAt` (TS + Rust;
+  Python parity in v0.9.0)
+- ✅ `audit.subscribe()` polling iterator (TS) — replaces the
+  no-op stub; polls `audit.query()` at `intervalMs` cadence with
+  high-water timestamp tracking and `AbortSignal` cancellation
+  (Rust + Python in v0.9.0)
+- ✅ `tla2tools.jar` SHA pin re-bumped (#132); Dependabot
+  rust-minor group of 27 crate bumps (#133); GitHub Actions
+  group bump (#124)
 
 ### v0.7.0 (2026-05-04)
 

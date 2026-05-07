@@ -16,6 +16,9 @@ missing."
 | [`subscriptions/`](./subscriptions/) | TS, Python | `client.subscribe(streamId, { startOffset })` AsyncIterable, credit-based flow control, idempotent unsubscribe |
 | [`secondary-index/`](./secondary-index/) | TS, Python | `CREATE INDEX ON projection(provider, providerMessageId)` + EXPLAIN-verified index scans on non-PK columns |
 | [`consent-decline/`](./consent-decline/) | TS, Python | `recordConsent({ termsVersion, accepted: false })` decline flow + audit-trail verification |
+| [`time-travel/`](./time-travel/) | TS | `SELECT … AS OF TIMESTAMP '<iso>'` and `client.queryAt(sql, params, at)` — reconstruct historical state |
+| [`audit-verify-chain/`](./audit-verify-chain/) | TS | `compliance.audit.verifyChain()` — server-walked SHA-256 hash-chain attestation (v0.8.0) |
+| [`multi-tenant/`](./multi-tenant/) | TS | Per-`tenantId` isolation — same table name, same PK, separate stores |
 
 ## Running
 

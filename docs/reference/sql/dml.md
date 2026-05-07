@@ -136,8 +136,11 @@ SELECT * FROM patients WHERE email IS NULL;
 ## Atomicity
 
 Each single statement is atomic. Multi-statement transactions with
-`BEGIN`/`COMMIT`/`ROLLBACK` are planned for v1.0; the parser currently
-rejects them. Until then, design workflows so each step is idempotent.
+`BEGIN`/`COMMIT`/`ROLLBACK` are planned **post-v1.0** — they intentionally
+sit behind the v1.0 checklist gates so the immutable-log + derived-view
+contract stays clean for the initial OSS release. The parser currently
+rejects them. Until then, design workflows so each step is idempotent;
+see the outbox-pattern recipe (cookbook) for cross-table coordination.
 
 ## Resource limits
 

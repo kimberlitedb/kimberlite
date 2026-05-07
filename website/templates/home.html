@@ -132,8 +132,7 @@
           {# Templated from Cargo.toml workspace version at build time (see #}
           {# build.rs::emit_latest_release_version); deploy workflow can #}
           {# override by setting KIMBERLITE_LATEST_RELEASE to the latest #}
-          {# GitHub release tag. ROADMAP v0.5.0 "Docker mirror + install.sh #}
-          {# templating" item — no more manual edits on every release. #}
+          {# GitHub release tag. #}
           Latest Release: <a href="https://github.com/kimberlitedb/kimberlite/releases/latest" class="installation__link">{{ latest_release }}</a>
         </span>
         <span class="installation__statusline-item">
@@ -1294,6 +1293,10 @@
 
       <p class="text-muted">
         Traditional databases rely on testing, which can't prove absence of bugs. Kimberlite uses mathematical proofs to guarantee correctness—the same techniques used for space missions and medical devices.
+      </p>
+
+      <p class="text-small text-muted">
+        <em>Formally modeled, not yet third-party certified.</em> Kimberlite ships the cryptographic and architectural primitives that these frameworks demand; SOC 2 Type II, HIPAA attestation, and FedRAMP authorization are <a href="/docs/roadmap">v1.0 gates</a>. <a href="/faq">See the FAQ</a> for what this means for your team.
       </p>
 
       <div class="cluster" data-justify="center">

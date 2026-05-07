@@ -240,5 +240,5 @@ def test_create_stream(client):
 
 - [SDK Architecture](/docs/reference/sdk/overview)
 - [Protocol Specification](/docs/reference/protocol)
-- Python examples (coming soon)
+- Python examples: [`examples/python/fastapi-app/`](https://github.com/kimberlitedb/kimberlite/tree/main/examples/python/fastapi-app), [`examples/python/django-app/`](https://github.com/kimberlitedb/kimberlite/tree/main/examples/python/django-app), [`examples/healthcare/clinic.py`](https://github.com/kimberlitedb/kimberlite/blob/main/examples/healthcare/clinic.py)
 - Type stubs included

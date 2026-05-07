@@ -176,7 +176,7 @@ See [docs/concepts/architecture.md](docs/concepts/architecture.md) for details.
 | **Consensus** | Streaming replication | VSR (deterministic, multi-node) |
 | **Best for** | General OLTP | Compliance-heavy workloads |
 
-**Trade-offs:** Kimberlite trades some write throughput for built-in auditability and tamper-evidence. Quantitative re-baseline against current hardware is a v0.7.0 target; see [FAQ](docs/reference/faq.md) for the qualitative comparison.
+**Trade-offs:** Kimberlite trades some write throughput for built-in auditability and tamper-evidence. Quantitative re-baseline against current hardware is a v0.9.0 target; see [FAQ](docs/reference/faq.md) for the qualitative comparison.
 
 ## Learning Resources
 
@@ -213,6 +213,25 @@ See [docs/concepts/architecture.md](docs/concepts/architecture.md) for details.
 >
 > **Post-v1.0:** a managed cloud service (Kimberlite Cloud) is planned alongside the OSS core. The core stays OSS; the cloud adds ops, scaling, and compliance-ready shared-responsibility — similar to CockroachDB Serverless on top of CockroachDB OSS.
 
+## Known Limitations (v0.8.0)
+
+We surface these up front so you don't trip over them:
+
+- **Single-node only for production.** Multi-node VSR consensus is implemented end-to-end and PR-gated against TLA+ specs, but the `kimberlite-cluster` crate is marked "not ready for public use" — production multi-node is a v1.0 gate. Single-node is stable.
+- **No multi-statement transactions.** `BEGIN`/`COMMIT`/`ROLLBACK` are planned post-v1.0; the parser rejects them today. Single statements are atomic. For cross-table workflows, see the outbox-pattern recipe in [`examples/cookbook/`](examples/cookbook/).
+- **`NOW()` / `CURRENT_TIMESTAMP` / `CURRENT_DATE` panic if reached unfolded.** v0.7.0 shipped the sentinel variants; the planner-side `fold_time_constants` pass is a v0.9.0 in-flight item. Until then, pass an explicit timestamp parameter from the application instead.
+- **No published performance baselines yet.** Hardware re-baseline is a v0.9.0 target. Correctness is covered by 3,000+ tests + VOPR deterministic simulation; throughput / latency numbers are coming.
+- **Wire protocol may evolve between minor versions.** Breaking changes are called out in [`CHANGELOG.md`](CHANGELOG.md). Pin server and SDK to compatible versions until v1.0.
+- **Go SDK Phase 1 lands in v0.9.0.** Rust / TypeScript / Python are at full data-plane + compliance-surface parity today.
+
+See [`ROADMAP.md`](ROADMAP.md) for the full list of in-flight and deferred items, and the v1.0 readiness gates.
+
+## Compliance posture
+
+**Kimberlite ships the cryptographic and architectural primitives that HIPAA, SOC 2, FedRAMP, GDPR, PCI DSS, and ISO 27001 demand:** hash-chained immutable audit log (server-walked attestation via `audit.verifyChain()`), AES-256-GCM at rest, Ed25519 signed exports, multi-tenant key isolation, GDPR Article 17 erasure orchestration with `requestId` correlation, GDPR Article 6 consent-basis tracking on the wire, column-level masking policies that compose with RBAC + break-glass, and 23 frameworks formally modelled (TLA+ + Coq + Kani + VOPR scenarios) — see [`docs/compliance/certification-package.md`](docs/compliance/certification-package.md).
+
+**What we have NOT done:** third-party SOC 2 Type II audit, HIPAA attestation + BAA, FedRAMP authorization, GDPR readiness review. These are v1.0 gates. Until then, **Kimberlite *enables* your compliance posture; certification remains your team's responsibility** (BAA with your hosting provider, pen test, audit firm engagement, internal controls). If you're a regulated startup, you can build on Kimberlite today knowing the substrate is sound — but the audit letters and certifications are work you (or we, post-v1.0) still have to do.
+
 ## SDKs
 
 Kimberlite provides idiomatic client libraries for multiple languages:
@@ -222,7 +241,7 @@ Kimberlite provides idiomatic client libraries for multiple languages:
 | Rust       | ✅ Ready                                    | `kimberlite-client`      | `cargo add kimberlite-client`    |
 | TypeScript | ✅ Ready (Node 18/20/22/24, prebuilt napi)  | `@kimberlitedb/client`   | `npm install @kimberlitedb/client` |
 | Python     | ✅ Ready                                    | `kimberlite`             | `pip install kimberlite`         |
-| Go         | 📋 Planned (v0.7.0)                         | —                        | See [ROADMAP](ROADMAP.md)        |
+| Go         | 📋 Planned (v0.9.0 Phase 1)                 | —                        | See [ROADMAP](ROADMAP.md)        |
 | Java       | 📋 Planned (v1.0 gate)                      | `com.kimberlite:kimberlite-client` | Maven / Gradle         |
 | C++        | 📋 Planned (v1.0 gate, via FFI)             | `kimberlite-cpp`         | Coming soon                      |
 
